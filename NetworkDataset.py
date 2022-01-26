@@ -57,8 +57,15 @@ class DatasetLoader():
             img_name, ext = os.path.splitext(os.path.basename(img_path));
             dummy_label_path = os.path.sep.join([self.__root_path, "labels", img_name + ".meta"]);
             if dummy_label_path in labels_root_list:
-                images_list.append(img_path);
+                img_0 = cv2.imread(os.path.sep.join([self.__root_path, "labels", img_name + "_0.png"]), cv2.IMREAD_COLOR);
+                img_1 = cv2.imread(os.path.sep.join([self.__root_path, "labels", img_name + "_1.png"]), cv2.IMREAD_COLOR);
+                combined = img_0+ img_1;
+                images_list.append(combined);
                 df = pickle.load(open(dummy_label_path,'rb'));
+                #print(df['rot']);
+                #print(img_path);
+                #cv2.imshow("t", combined);
+                #cv2.waitKey();
                 img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE);
                 hist = cv2.calcHist(img, [1], None, [256], [0,255] );
                 labels_list.append(self.__convert_to_class_label(df['exp'], df['rot']));
@@ -117,6 +124,9 @@ class DatasetLoader():
                     total_other+=self.__rotation_label_counter[k2];
             ret_rot.append(total_other/total_rot);
         
+        ret_rot = np.array(ret_rot, dtype=np.float);
+        ret_rot = ret_rot / np.sqrt(np.sum(ret_rot ** 2));
+        
         return ret_exp, ret_rot;
         
     
@@ -155,9 +165,9 @@ class NetworkDataset(Dataset):
 
     def __getitem__(self, index):
         logging.info("start of get item");
-        radiograph_image_path = self.radiographs[index];
+        radiograph_image = self.radiographs[index];
         img_class = self.masks[index];
-        radiograph_image = cv2.imread(radiograph_image_path,cv2.IMREAD_COLOR);
+        #radiograph_image = cv2.imread(radiograph_image_path,cv2.IMREAD_COLOR);
 
         #radiograph_image = np.expand_dims(radiograph_image, axis=2);
         #radiograph_image = np.repeat(radiograph_image, 3,axis=2);
@@ -187,6 +197,7 @@ class NetworkDataset(Dataset):
         if self.transform is not None:
             transformed = self.transform(image = radiograph_image);
             radiograph_image = transformed["image"];
+            radiograph_image = radiograph_image /255.0;
             #ri = radiograph_image.permute(1,2,0).cpu().detach().numpy()*255;
             #sns.distplot(ri.ravel(), label=f'Mean : {np.mean(ri)}, std: {np.std(ri)}');
             #plt.legend(loc='best');

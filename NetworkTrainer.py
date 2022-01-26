@@ -37,7 +37,7 @@ class NetworkTrainer():
     #This function should be called once the program starts
     def __initialize(self,):
         self.model = Resnet(num_classes=3).to(Config.DEVICE);
-        self.optimizer = optim.Adam(self.model.parameters(), lr=Config.LEARNING_RATE, weight_decay=1e-2);
+        self.optimizer = optim.Adam(self.model.parameters(), lr=Config.LEARNING_RATE, weight_decay=1e-4);
 
         self.precision_estimator = Precision(num_classes=3, average='macro').to(DEVICE);
         self.recall_estimator = Recall(num_classes=3, average='macro').to(DEVICE);
@@ -52,8 +52,8 @@ class NetworkTrainer():
         self.train_transforms = A.Compose(
             [
                 A.Resize(Config.IMAGE_WIDTH, Config.IMAGE_HEIGHT),
-                A.HorizontalFlip(p=0.5),
-                A.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225]),
+                #A.HorizontalFlip(p=0.5),
+                #A.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225]),
                 ToTensorV2(),
             ],
             additional_targets={'mask': 'mask'}
@@ -64,12 +64,12 @@ class NetworkTrainer():
                 #A.PadIfNeeded(min_height = 512, min_width = 512),
                 #A.RandomCrop(Config.IMAGE_SIZE, Config.IMAGE_SIZE, always_apply = True),
                 A.Resize(Config.IMAGE_WIDTH, Config.IMAGE_HEIGHT),
-                A.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225]),
+                #A.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225]),
                 ToTensorV2()
                 ]
         )
 
-        self.__dataset_loader = DatasetLoader("C:\\PhD\\Miscellaneous\\vet2");
+        self.__dataset_loader = DatasetLoader("D:\\PhD\\Miscellaneous\\vet2");
         
         pass
 
@@ -81,7 +81,7 @@ class NetworkTrainer():
         img_list, lbl_list, weights = self.__dataset_loader.load();
         lbl_list = np.array(lbl_list)[:,1];
 
-        X_train, X_valid, y_train, y_valid = train_test_split(img_list, lbl_list, test_size=0.2, random_state=40);
+        X_train, X_valid, y_train, y_valid = train_test_split(img_list, lbl_list, test_size=0.4, random_state=40);
 
         self.train_dataset = NetworkDataset(X_train, y_train, self.train_transforms, train = True);
         self.valid_dataset = NetworkDataset(X_valid, y_valid, self.valid_transforms, train = False);
@@ -97,7 +97,7 @@ class NetworkTrainer():
         # batch_size= Config.BATCH_SIZE, shuffle=True, num_workers=Config.NUM_WORKERS, pin_memory=True);
 
         self.added_indices = [];
-        self.ce = nn.CrossEntropyLoss(torch.tensor(weights)).to(DEVICE);
+        self.ce = nn.CrossEntropyLoss(torch.tensor(weights).float()).to(DEVICE);
 
         self.stopping_strategy = CombinedTrainValid(2,5);
 
@@ -110,7 +110,6 @@ class NetworkTrainer():
         with tqdm(loader, unit="batch") as batch_data:
             for radiograph, mask, _ in batch_data:
                 radiograph,mask = radiograph.to(Config.DEVICE), mask.to(Config.DEVICE)
-
                 with torch.cuda.amp.autocast_mode.autocast():
                     pred = model(radiograph);
                     loss_ce = self.ce(pred,mask.long());
