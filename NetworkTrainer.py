@@ -79,7 +79,7 @@ class NetworkTrainer():
         self.writer = SummaryWriter('experiments');
 
         img_list, lbl_list, weights = self.__dataset_loader.load();
-        lbl_list = np.array(lbl_list)[:,1];
+        lbl_list = np.array(lbl_list)[:,0];
 
         X_train, X_valid, y_train, y_valid = train_test_split(img_list, lbl_list, test_size=0.2, random_state=40);
 

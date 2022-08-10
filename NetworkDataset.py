@@ -28,7 +28,7 @@ import Config
 import logging
 
 class DatasetLoader():
-    def __init__(self, root_path) -> None:
+    def __init__(self, root_path = None) -> None:
         self.__root_path = root_path;
         self.__exposure_label_dict = dict();
         self.__rotation_label_dict = dict();
@@ -53,20 +53,39 @@ class DatasetLoader():
         images_list = [];
         labels_list = [];
 
+        # for img_path in images_root_list:
+        #     img_name, ext = os.path.splitext(os.path.basename(img_path));
+        #     dummy_label_path = os.path.sep.join([self.__root_path, "labels", img_name + ".meta"]);
+        #     if dummy_label_path in labels_root_list:
+        #         images_list.append(img_path);
+        #         df = pickle.load(open(dummy_label_path,'rb'));
+        #         img = cv2.imread(img_path);
+        #         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY);
+        #         hist = cv2.calcHist([img], [0], None, [256], [0,256] );
+        #         hist = hist / np.sum(hist);
+        #         labels_list.append(self.__convert_to_class_label(df['exp'], df['rot']));
+        
         for img_path in images_root_list:
             img_name, ext = os.path.splitext(os.path.basename(img_path));
             dummy_label_path = os.path.sep.join([self.__root_path, "labels", img_name + ".meta"]);
             if dummy_label_path in labels_root_list:
-                images_list.append(img_path);
+                img_0 = cv2.imread(os.path.sep.join([self.__root_path, "labels", img_name + "_0.png"]), cv2.IMREAD_COLOR);
+                img_1 = cv2.imread(os.path.sep.join([self.__root_path, "labels", img_name + "_1.png"]), cv2.IMREAD_COLOR);
+                combined = img_0+ img_1;
+                images_list.append(combined);
                 df = pickle.load(open(dummy_label_path,'rb'));
+                print(df['rot']);
+                print(img_path);
+                cv2.imshow("t", combined);
+                cv2.waitKey();
                 img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE);
                 hist = cv2.calcHist(img, [1], None, [256], [0,255] );
                 labels_list.append(self.__convert_to_class_label(df['exp'], df['rot']));
-            
+
         images_list, labels_list = shuffle(images_list, labels_list, random_state=40);
 
         exp_weights, rot_weights = self.__get_label_weights();
-        return images_list, labels_list, rot_weights;
+        return images_list, labels_list, exp_weights;
     
     def __convert_to_class_label(self, exp, rot):
         rot_label_idx = 0;
@@ -122,19 +141,17 @@ class DatasetLoader():
     
     def display_histograms(self, root_path, label):
         self.__root_path = root_path;
-        img_list, lbl_list = self.load();
-
+        img_list, lbl_list, _ = self.load();
+        number_of_images = (np.array(lbl_list)[:,0] == label).sum();
         cnt = 1;
+        plt.figure();  
+        plt.title("Normal"); 
         for img, lbl in zip(img_list, lbl_list):
             if lbl[0] == label:
                 img = cv2.imread(img, cv2.IMREAD_GRAYSCALE);
-                plt.figure();   
-                plt.subplot(1,2,1);
+                plt.subplot(number_of_images,1,cnt);
                 plt.hist(img.ravel(), 256, [0,256]);
-                plt.subplot(1,2,2);
-                plt.imshow(img, cmap='gray');
-                plt.title(lbl);
-                cnt+=2;
+                cnt+=1;
         plt.show();
 
 
@@ -232,4 +249,5 @@ def analyze_dataset():
     pass
 
 if __name__ == "__main__":
-    dl = DatasetLoader.display_histograms("C:\\PhD\\Miscellaneous\\vet2",0);
+    dl = DatasetLoader();
+    dl.display_histograms("C:\\PhD\\Miscellaneous\\vet2",0);
