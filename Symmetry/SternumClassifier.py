@@ -69,9 +69,18 @@ if __name__ == "__main__":
     # hemithoraces = preload_data();
     # preprocess_train_dataset(hemithoraces);    
     
+    total_X = [];
+    total_Y = [];
+    train_fold_indices = [];
+    test_fold_indices = [];
     for i in range(5):
-        test_list = glob(f'{i}\\test\\*.');
-        train_list = glob(f'{i}\\test\\*.');
+        test_list = glob(f'{i}\\test\\*');
+        train_list = glob(f'{i}\\train\\*');
+        train_fold_indices=np.arange(len(total_X), len(total_X)+len(train_list));
+        test_fold_indices=np.arange(len(total_X)+len(train_list), len(total_X)+len(train_list)+len(test_list));
+
+        total_X.extend(train_list);
+        total_X.extend(test_list);
 
 
 

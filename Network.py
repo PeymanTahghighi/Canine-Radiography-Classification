@@ -68,7 +68,7 @@ class Upblock(nn.Module):
 class Resnet(nn.Module):
     def __init__(self, num_classes) -> None:
         super().__init__();
-        self.model = models.resnet18(pretrained= True);
+        self.model = models.resnet18(pretrained= False);
         self.model.fc = nn.Linear(512, num_classes, bias=True);
     
     def forward(self, inp):

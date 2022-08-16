@@ -5,9 +5,9 @@ import os
 
 from tqdm import tqdm
 
-DEST_FOLDER = 'C:\\PhD\\Miscellaneous\\Sternum';
+DEST_FOLDER = 'C:\\PhD\\Miscellaneous\\Spine and Ribs';
 ORIG_FOLDER = 'C:\\PhD\\Thesis\\Dataset\\DVVD';
-PROJECT_NAME = 'Sternum';
+PROJECT_NAME = 'SpineandRibs';
 
 def compare():
     img_list_orig_dir = glob(f'{ORIG_FOLDER}\\*');
