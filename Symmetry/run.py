@@ -98,17 +98,19 @@ if __name__ == "__main__":
     # for train_idx, test_idx in kfold.split(image_list, lbl_list):
     #     pickle.dump([train_idx,test_idx], open(f'{fold_cnt}.dmp', 'wb'));
     #     fold_cnt += 1;
-    curr_fold = 4;
+
+    #curr_fold = 4;
     train_idxs = [pickle.load(open('0.dmp', 'rb'))[0], pickle.load(open('1.dmp', 'rb'))[0], pickle.load(open('2.dmp', 'rb'))[0], pickle.load(open('3.dmp', 'rb'))[0], pickle.load(open('4.dmp', 'rb'))[0]]
     test_idxs = [pickle.load(open('0.dmp', 'rb'))[1], pickle.load(open('1.dmp', 'rb'))[1], pickle.load(open('2.dmp', 'rb'))[1], pickle.load(open('3.dmp', 'rb'))[1], pickle.load(open('4.dmp', 'rb'))[1]];
     #for train_idx, test_idx in zip(train_idxs, test_idxs):
         #pickle.dump([train_idx,test_idx], open(f'{fold_cnt}.dmp', 'wb'));
-    print(f'===============Starting fold: {curr_fold}==================');
+    for curr_fold in range(5):
+        print(f'===============Starting fold: {curr_fold}==================');
 
-    img_train, mask_train = image_list[train_idxs[curr_fold]], mask_list[train_idxs[curr_fold]];
-    img_test, mask_test = image_list[test_idxs[curr_fold]], mask_list[test_idxs[curr_fold]];
+        img_train, mask_train = image_list[train_idxs[curr_fold]], mask_list[train_idxs[curr_fold]];
+        img_test, mask_test = image_list[test_idxs[curr_fold]], mask_list[test_idxs[curr_fold]];
 
-    if TRAIN:
-        nt.train(curr_fold, [img_train, mask_train], [img_test, mask_test]);
-    else:
-        nt.eval('ckpt1.pt', [img_test, mask_test]);
+        if TRAIN:
+            nt.train(curr_fold, [img_train, mask_train], [img_test, mask_test]);
+        else:
+            nt.eval('ckpt1.pt', [img_test, mask_test]);

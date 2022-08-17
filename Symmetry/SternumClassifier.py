@@ -12,7 +12,7 @@ import pickle
 from pystackreg import StackReg
 from tqdm import tqdm
 from thorax import segment_thorax
-
+import pandas as pd
 from utility import divide_image_symmetry_line, get_symmetry_line
 
 #===========================================================
@@ -278,20 +278,33 @@ def extract_features(img_left, img_right):
 
 if __name__ == "__main__":
     # hemithoraces = preload_data();
-    # preprocess_train_dataset(hemithoraces);    
+    # preprocess_train_dataset(hemithoraces);   
     
+    gt_file = pd.read_excel('G:\\My Drive\\dvvd_list_final.xlsx');
+    img_list = list(gt_file['Image']);
+    img_list = list(map(str, img_list));
+
+    gt_lbl = list(gt_file['Symmetric Hemithoraces']);
     total_X = [];
     total_Y = [];
     train_fold_indices = [];
     test_fold_indices = [];
     for i in range(5):
+        
         test_list = glob(f'{i}\\test\\*');
         train_list = glob(f'{i}\\train\\*');
         train_fold_indices=np.arange(len(total_X), len(total_X)+int(len(train_list)/2));
         test_fold_indices=np.arange(len(total_X)+int(len(train_list)/2), len(total_X)+int(len(train_list)/2)+int(len(test_list)/2));
         
         for idx in range(0,len(train_list)-1,2):
-            
+            file_name = os.path.basename(train_list[idx]);
+            file_name = file_name[:file_name.rfind('_')];
+            if file_name in img_list:
+                img_indx = img_list.index(file_name);
+                lbl = gt_lbl[img_indx];
+                total_Y.append(lbl);
+            else:
+                print(file_name);
             img_left = cv2.imread(train_list[idx], cv2.IMREAD_GRAYSCALE);
             img_right = cv2.imread(train_list[idx+1], cv2.IMREAD_GRAYSCALE);
 
@@ -301,7 +314,14 @@ if __name__ == "__main__":
             total_X.append(feat);
         
         for idx in range(0,len(test_list)-1,2):
-            
+            file_name = os.path.basename(test_list[idx]);
+            file_name = file_name[:file_name.rfind('_')];
+            if file_name in img_list:
+                img_indx = img_list.index(file_name);
+                lbl = gt_lbl[img_indx];
+                total_Y.append(lbl);
+            else:
+                print(file_name);
             img_left = cv2.imread(test_list[idx], cv2.IMREAD_GRAYSCALE);
             img_right = cv2.imread(test_list[idx+1], cv2.IMREAD_GRAYSCALE);
 
@@ -309,6 +329,8 @@ if __name__ == "__main__":
 
             
             total_X.append(feat);
+    
+
 
 
 
