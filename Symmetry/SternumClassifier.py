@@ -29,7 +29,7 @@ def preload_data():
         file_name = file_name[:file_name.rfind('.')];
         meta_data = pickle.load(open(os.path.join(ROOT, f'{t}'), 'rb'));
 
-        if 'Spine' in meta_data.keys() and 'Ribs' in meta_data.keys() and file_name in names:
+        if 'Spine' in meta_data.keys() and 'Ribs' in meta_data.keys():
             spine_mask = cv2.imread(os.path.join(ROOT,  meta_data['Spine'][2]), cv2.IMREAD_GRAYSCALE);
             spine_mask = np.where(spine_mask > 0, 255, 0).astype(np.uint8);
             ribs_mask = cv2.imread(os.path.join(ROOT, meta_data['Ribs'][2]), cv2.IMREAD_GRAYSCALE);
@@ -277,8 +277,8 @@ def extract_features(img_left, img_right):
 
 
 if __name__ == "__main__":
-    # hemithoraces = preload_data();
-    # preprocess_train_dataset(hemithoraces);   
+    hemithoraces = preload_data();
+    preprocess_train_dataset(hemithoraces);   
     
     gt_file = pd.read_excel('G:\\My Drive\\dvvd_list_final.xlsx');
     img_list = list(gt_file['Image']);

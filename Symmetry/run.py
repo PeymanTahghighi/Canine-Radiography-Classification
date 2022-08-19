@@ -93,17 +93,9 @@ if __name__ == "__main__":
 
 
     nt = NetworkTrainer();
-    # kfold = StratifiedKFold(5);
-    # fold_cnt = 0;
-    # for train_idx, test_idx in kfold.split(image_list, lbl_list):
-    #     pickle.dump([train_idx,test_idx], open(f'{fold_cnt}.dmp', 'wb'));
-    #     fold_cnt += 1;
-
-    #curr_fold = 4;
     train_idxs = [pickle.load(open('0.dmp', 'rb'))[0], pickle.load(open('1.dmp', 'rb'))[0], pickle.load(open('2.dmp', 'rb'))[0], pickle.load(open('3.dmp', 'rb'))[0], pickle.load(open('4.dmp', 'rb'))[0]]
     test_idxs = [pickle.load(open('0.dmp', 'rb'))[1], pickle.load(open('1.dmp', 'rb'))[1], pickle.load(open('2.dmp', 'rb'))[1], pickle.load(open('3.dmp', 'rb'))[1], pickle.load(open('4.dmp', 'rb'))[1]];
-    #for train_idx, test_idx in zip(train_idxs, test_idxs):
-        #pickle.dump([train_idx,test_idx], open(f'{fold_cnt}.dmp', 'wb'));
+
     for curr_fold in range(5):
         print(f'===============Starting fold: {curr_fold}==================');
 

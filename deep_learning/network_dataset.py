@@ -10,7 +10,7 @@ import pickle
 import matplotlib.pyplot as plt
 import config
 
-class SternumDataset(Dataset):
+class CanineDataset(Dataset):
     def __init__(self, radiographs, masks, transform):
         self.__radiographs = radiographs;
         self.__masks = masks;

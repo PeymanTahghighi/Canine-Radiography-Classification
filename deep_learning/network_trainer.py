@@ -41,24 +41,17 @@ class NetworkTrainer():
 
     #This function should be called once the program starts
     def __initialize(self,):
-
-        self.model = Unet(3).to(config.DEVICE);
-        self.init_weights = deepcopy(self.model.state_dict());
         self.scaler = torch.cuda.amp.grad_scaler.GradScaler();
         self.precision_estimator = Precision(num_classes=3).to(config.DEVICE);
         self.recall_estimator = Recall(num_classes=3).to(config.DEVICE);
         self.accuracy_esimator = Accuracy(num_classes=3).to(config.DEVICE);
         self.f1_esimator = F1Score(num_classes=3).to(config.DEVICE);
 
-        pass
-
     def __loss_func(self, output, gt):
         f_loss = focal_loss(output, gt,  arange_logits=True, mutual_exclusion=True);
         t_loss = tversky_loss(output, gt, sigmoid=False, arange_logits=True, mutual_exclusion=True)
         return  t_loss + f_loss;
         
-
-
     def __train_one_epoch(self, epoch, loader, model, optimizer):
         epoch_loss = [];
         step = 0;
@@ -123,10 +116,10 @@ class NetworkTrainer():
         return np.mean(epoch_loss), np.mean(total_acc), np.mean(total_prec), np.mean(total_rec), np.mean(total_f1);
 
 
-    def train(self, fold_cnt, train_data, test_data):
+    def train(self, model, fold_cnt, train_dataloader, test_dataloader):
 
-        self.model.load_state_dict(self.init_weights);
-        optimizer = optim.Adam(self.model.parameters(), lr=config.LEARNING_RATE, weight_decay=1e-5);
+        model.reset_weights();
+        optimizer = optim.Adam(model.parameters(), lr=config.LEARNING_RATE, weight_decay=1e-5);
 
         stopping_strategy = CombinedTrainValid(0.7,2);
 

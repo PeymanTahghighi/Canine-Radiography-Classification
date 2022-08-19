@@ -3,6 +3,9 @@ import pickle
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import StratifiedKFold
 from glob import glob
+from deep_learning.network import Unet
+from deep_learning.network_trainer import NetworkTrainer
+from deep_learning.network_dataset import CanineDataset
 
 #---------------------------------------------------------
 def update_folds(root_dataframe, num_folds = 5):
@@ -33,7 +36,7 @@ def update_folds(root_dataframe, num_folds = 5):
     skfold = StratifiedKFold(num_folds, shuffle=True, random_state=42);
     fold_cnt = 0;
     for train_idx, test_idx in skfold.split(img_list, lbl_list):
-        pickle.dump([train_idx, test_idx], open(f'{fold_cnt}.fold', 'wb'));
+        pickle.dump([img_list[train_idx], lbl_list[train_idx], img_list[test_idx], lbl_list[test_idx]], open(f'{fold_cnt}.fold', 'wb'));
         fold_cnt += 1;
 #---------------------------------------------------------
 
@@ -55,6 +58,28 @@ if __name__ == "__main__":
     update_folds(root_dataframe);
     #(1-2)
     folds = load_folds();
+
+    newtwork_trainer = NetworkTrainer();
+    spine_and_ribs_model = Unet(3);
+    sternum_model = Unet(1);
+    diaphragm_model = Unet(1);
+
+    
+
+
+
+    #(2)
+    for f in folds:
+        train_imgs, train_lbl, test_imgs, test_lbl = f[0], f[1], f[2], f[3];
+        print(f'\n================= Starting fold {f} =================\n')
+        #(2-1)
+        print('------------- Training spine and ribs model ---------------\n');
+
+
+
+
+
+
 
 
 
