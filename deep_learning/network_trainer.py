@@ -116,21 +116,12 @@ class NetworkTrainer():
         return np.mean(epoch_loss), np.mean(total_acc), np.mean(total_prec), np.mean(total_rec), np.mean(total_f1);
 
 
-    def train(self, model, fold_cnt, train_dataloader, test_dataloader):
+    def train(self, model, fold_cnt, train_loader, test_loader):
 
         model.reset_weights();
         optimizer = optim.Adam(model.parameters(), lr=config.LEARNING_RATE, weight_decay=1e-5);
 
         stopping_strategy = CombinedTrainValid(0.7,2);
-
-        train_dataset = SternumDataset(train_data[0], train_data[1], config.train_transforms);
-        valid_dataset = SternumDataset(test_data[0], test_data[1], config.valid_transforms);
-
-        train_loader = DataLoader(train_dataset, 
-        batch_size= config.BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True, drop_last=True);
-
-        valid_loader = DataLoader(valid_dataset, 
-        batch_size= config.BATCH_SIZE, shuffle=False);
 
         best = 100;
         e = 1;

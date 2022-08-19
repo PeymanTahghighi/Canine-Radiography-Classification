@@ -64,16 +64,13 @@ if __name__ == "__main__":
     sternum_model = Unet(1);
     diaphragm_model = Unet(1);
 
-    
-
-
-
     #(2)
     for f in folds:
         train_imgs, train_lbl, test_imgs, test_lbl = f[0], f[1], f[2], f[3];
         print(f'\n================= Starting fold {f} =================\n')
         #(2-1)
         print('------------- Training spine and ribs model ---------------\n');
+        
 
 
 

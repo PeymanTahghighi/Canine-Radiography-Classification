@@ -58,7 +58,7 @@ def preprocess_train_dataset(hemithoraces_dict):
             file_name = file_name[:file_name.rfind('.')];
             meta_data = pickle.load(open(os.path.join(ROOT, f'{file_name}.meta'), 'rb'));
 
-            if 'Spine' in meta_data.keys() and 'Ribs' in meta_data.keys() and file_name in names:
+            if 'Spine' in meta_data.keys() and 'Ribs' in meta_data.keys():
 
                 if os.path.exists(f'{i}\\train') is False:
                     os.mkdir(f'{i}\\train');
@@ -117,7 +117,6 @@ def get_perimeter(img):
     
     return perimeter, perimeter_crop;
 
-
 def get_histogram(img, bins):
     temp_img = np.where(img == 255, 1, 0);
     h,w = img.shape;
@@ -148,7 +147,6 @@ def get_histogram(img, bins):
     hist_vertical = hist_vertical / hist_vertical.sum();
     
     return hist_horizontal, hist_vertical;
-
 
 def IoU(img_1, img_2):
     h1,w = img_1.shape;
@@ -329,9 +327,3 @@ if __name__ == "__main__":
 
             
             total_X.append(feat);
-    
-
-
-
-
-
