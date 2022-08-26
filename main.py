@@ -1,4 +1,4 @@
-from NetworkTrainer import *
+from model_trainer import *
 
 if __name__ == "__main__":
     torch.autograd.set_detect_anomaly(False)

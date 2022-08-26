@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import config
+from deep_learning.network_dataset import CanineDataset
 from network_dataset import SternumDataset
 from network import *
 from tqdm import tqdm
@@ -21,7 +22,7 @@ from PIL import Image
 from glob import glob
 from torchvision.utils import save_image
 import albumentations as A
-import PIL.ImageColor
+from sklearn.svm import SVC
 import torchvision.transforms.functional as F
 from ignite.contrib.handlers.tensorboard_logger import *
 from torch.utils.data import DataLoader
@@ -31,6 +32,108 @@ from stopping_strategy import *
 from loss import dice_loss, focal_loss, tversky_loss
 from utility import divide_image_symmetry_line, get_symmetry_line, remove_blobs, remove_blobs_spine
 from thorax import segment_thorax
+from utils import extract_cranial_features
+
+def train_cranial_model(fold_cnt, train_features, train_lbl):
+    model = SVC();
+    model.fit(train_features, train_lbl);
+    pickle.dump(model, open(f'results\\{fold_cnt}\\cranial_model.pt', 'wb'));
+    return model;
+
+def train_caudal_model(fold_cnt, train_features, train_lbl):
+    model = SVC();
+    model.fit(train_features, train_lbl);
+    pickle.dump(model, open(f'results\\{fold_cnt}\\caudal_model.pt', 'wb'));
+    return model;
+
+def train_full_model(fold_cnt, train_features, train_lbl):
+    model = SVC();
+    model.fit(train_features, train_lbl);
+    pickle.dump(model, open(f'results\\{fold_cnt}\\full_model.pt', 'wb'));
+    return model;
+    
+
+def evaluate_test_data(fold_cnt, segmentation_models, classification_models, test_imgs, test_grain_lbl, test_lbl):
+    for radiograph_image_path in test_imgs:
+        file_name = os.path.basename(radiograph_image_path);
+        file_name = file_name[:file_name.rfind('.')];
+
+        file_name = os.path.basename(radiograph_image_path);
+        file_name = file_name[:file_name.rfind('.')];
+
+        radiograph_image = cv2.imread(radiograph_image_path,cv2.IMREAD_GRAYSCALE);
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        radiograph_image = clahe.apply(radiograph_image);
+        radiograph_image = np.expand_dims(radiograph_image, axis=2);
+        radiograph_image = np.repeat(radiograph_image, 3,axis=2);
+
+
+        transformed = config.valid_transforms(image = radiograph_image);
+        radiograph_image = transformed["image"];
+        radiograph_image = radiograph_image.to(config.DEVICE);
+        
+        #spine and ribs
+        out = segmentation_models[0](radiograph_image.unsqueeze(dim=0));
+        out = (torch.softmax(out, dim= 1)[0].permute(1,2,0)).detach().cpu().numpy();
+        out = np.argmax(out,axis = 2);
+
+        ribs = (out == 1).astype("uint8")*255;
+        spine = (out == 2).astype("uint8")*255;
+
+        ribs = remove_blobs(ribs);
+        spine = remove_blobs_spine(spine);
+        #----------------------------------------------------
+
+        #diaphragm
+        diaphragm = segmentation_models[1](radiograph_image.unsqueeze(dim=0));
+        diaphragm = torch.sigmoid(diaphragm)[0].permute(1,2,0).detach().cpu().numpy();
+        diaphragm = diaphragm > 0.5;
+        diaphragm = np.uint8(diaphragm)*255;
+        #----------------------------------------------------
+
+        #sternum
+        sternum = segmentation_models[2](radiograph_image.unsqueeze(dim=0));
+        sternum = torch.sigmoid(sternum)[0].permute(1,2,0).detach().cpu().numpy();
+        sternum = sternum > 0.5;
+        sternum = np.uint8(sternum);
+        #----------------------------------------------------
+
+        #Symmetry
+        sym_line = get_symmetry_line(spine);
+        ribs_left, ribs_right = divide_image_symmetry_line(ribs, sym_line);
+        thorax_left = segment_thorax(ribs_left);
+        thorax_right = segment_thorax(ribs_right);
+        whole_thorax = segment_thorax(ribs);
+        #symmetry features
+        #----------------------------------------------------
+
+        #Cranial
+        cranial = spine - whole_thorax;
+        cranial_features = extract_cranial_features(cranial);
+        cranial_lbl = classification_models[0].predict(cranial_features);
+        #-----------------------------------------------------
+
+        #Caudal
+        caudal = diaphragm - whole_thorax;
+        caudal_features = extract_cranial_features(caudal);
+        caudal_lbl = classification_models[0].predict(cranial_features);
+        #-----------------------------------------------------
+
+        #Sternum
+        sternum = np.logical_and(sternum.squeeze(), whole_thorax).astype(np.uint8);
+        sternum_features = np.sum(sternum, (1,2));
+        if sternum_features > 32:
+            sternum_lbl = 1;
+        else:
+            sternum_lbl = 0;
+        #-----------------------------------------------------
+
+
+
+
+
+        pickle.dump([cranial_features, caudal_features, sternum_features], f'results\\{fold_cnt}\\test\\{file_name}.feat');
+
 
 
 class NetworkTrainer():
@@ -116,7 +219,16 @@ class NetworkTrainer():
         return np.mean(epoch_loss), np.mean(total_acc), np.mean(total_prec), np.mean(total_rec), np.mean(total_f1);
 
 
-    def train(self, model, fold_cnt, train_loader, test_loader):
+    def train(self, task_name, model, fold_cnt, train_imgs, train_mask, test_imgs, test_mask):
+
+        train_dataset = CanineDataset(train_imgs, train_mask, config.train_transforms);
+        valid_dataset = CanineDataset(test_imgs, test_mask, config.valid_transforms);
+
+        train_loader = DataLoader(train_dataset, 
+        batch_size= config.BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True, drop_last=True);
+
+        valid_loader = DataLoader(valid_dataset, 
+        batch_size= config.BATCH_SIZE, shuffle=False);
 
         model.reset_weights();
         optimizer = optim.Adam(model.parameters(), lr=config.LEARNING_RATE, weight_decay=1e-5);
@@ -131,14 +243,16 @@ class NetworkTrainer():
         best_f1 = 0;
         best_acc = 0;
 
+        print(f'Started training task: {task_name}');
+
         while(True):
             self.model.train();
-            self.__train_one_epoch(e, train_loader,self.model, optimizer);
+            self.__train_one_epoch(e, train_loader,model, optimizer);
 
-            self.model.eval();
-            train_loss, train_acc, train_precision, train_recall, train_f1 = self.__eval_one_epoch(e, train_loader, self.model);
+            model.eval();
+            train_loss, train_acc, train_precision, train_recall, train_f1 = self.__eval_one_epoch(e, train_loader, model);
 
-            valid_loss, valid_acc, valid_precision, valid_recall, valid_f1 = self.__eval_one_epoch(e, valid_loader, self.model);
+            valid_loss, valid_acc, valid_precision, valid_recall, valid_f1 = self.__eval_one_epoch(e, valid_loader, model);
 
             print(f"Epoch {e}\tLoss: {train_loss}\tPrecision: {train_precision}\tRecall: {train_recall}\tAccuracy: {train_acc}\tF1: {train_f1}");
             print(f"Valid \tLoss: {valid_loss}\tPrecision: {valid_precision}\tRecall: {valid_recall}\tAccuracy: {valid_acc}\tF1: {valid_f1}");
@@ -159,11 +273,11 @@ class NetworkTrainer():
         f = open(f'res{fold_cnt}.txt', 'w');
         f.write(f"Valid \tPrecision: {best_prec}\tRecall: {best_recall}\tAccuracy: {best_acc}\tF1: {best_f1}");
         f.close();
-        pickle.dump(best_model, open(f'ckpt{fold_cnt}.pt', 'wb'));
+        pickle.dump(best_model, open(f'results\\{fold_cnt}\\{task_name}.pt', 'wb'));
 
         #load model with best weights to save outputs
-        self.model.load_state_dict(best_model);
-        self.save_samples(fold_cnt, test_data[0]);
+        model.load_state_dict(best_model);
+        return model;
     
 
     def eval(self, checkpoint_path, test_data):
@@ -207,12 +321,9 @@ class NetworkTrainer():
         plt.scatter(all_data, all_lbl);
         plt.show();
     
-    def save_samples(self, fold_cnt, test_img):
-        if os.path.exists(f'{fold_cnt}'):
-            for f in os.listdir(f'{fold_cnt}'):
-                os.remove(f'{fold_cnt}\\{f}');
-        else:
-            os.mkdir(f'{fold_cnt}');
+    def save_samples(self, fold_cnt, task_name, test_img):
+        
+        os.mkdir(f'{task_name}\\test\\{fold_cnt}');
         
         for radiograph_image_path in test_img:
 
@@ -247,8 +358,3 @@ class NetworkTrainer():
 
             cv2.imwrite(f'{fold_cnt}\\{file_name}_left.png', thorax_left);
             cv2.imwrite(f'{fold_cnt}\\{file_name}_right.png', thorax_right);
-
-
-
-
-
