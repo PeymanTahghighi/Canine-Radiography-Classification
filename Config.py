@@ -6,8 +6,8 @@ LEARNING_RATE = 1e-4
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu';
 BATCH_SIZE = 2;
 IMAGE_SIZE = 1024
-D_PROJECT_ROOT = ''
-ST_PROJECT_ROOT = 'D:\\PhD\\Miscellaneous\\Sternum'
+D_PROJECT_ROOT = 'C:\\PhD\\Miscellaneous\\Diaphragm'
+ST_PROJECT_ROOT = 'C:\\PhD\\Miscellaneous\\Sternum'
 
 train_transforms = A.Compose(
 [
