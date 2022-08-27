@@ -1,22 +1,19 @@
 from copy import copy
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage import data
 from skimage.filters import gaussian
 from skimage.segmentation import active_contour
 import cv2
 from glob import glob
-import io
+import config
 import os
 
 GAP = 50;
-IMG_WDITH = 512;
-IMG_HEIGHT = 512;
 
 def segment_thorax(img):
 
     #img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE);
-    img = cv2.resize(img, (IMG_WDITH,IMG_HEIGHT));
+    img = cv2.resize(img, (config.IMAGE_SIZE,config.IMAGE_SIZE));
     h,w = img.shape;
     segment_thorax = np.ones(shape=img.shape, dtype=np.uint8);
 

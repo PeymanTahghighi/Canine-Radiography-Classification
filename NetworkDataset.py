@@ -1,7 +1,7 @@
 from PyQt5 import QtCore
 from cv2 import IMREAD_GRAYSCALE
 from pandas.io import pickle
-from Utility import get_radiograph_label_meta
+from utility import get_radiograph_label_meta
 from PIL import ImageColor, Image
 import PIL
 from imgaug.augmenters.meta import Sometimes
@@ -24,7 +24,7 @@ import pandas as pd
 import pickle
 import seaborn as sns
 import matplotlib.pyplot as plt
-import Config
+import config
 import logging
 
 class DatasetLoader():

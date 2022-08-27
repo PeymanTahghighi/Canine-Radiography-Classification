@@ -1,3 +1,4 @@
+from copy import deepcopy
 import pickle
 from sklearn.utils import shuffle
 from numpy.core.fromnumeric import mean
@@ -9,14 +10,13 @@ import torch.nn as nn
 import torch.optim as optim
 import config
 from deep_learning.network_dataset import CanineDataset
-from network_dataset import SternumDataset
-from network import *
+from deep_learning.network import Unet
 from tqdm import tqdm
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
-from sklearn.metrics import roc_curve, precision_recall_curve
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 import os
 from PIL import Image
 from glob import glob
@@ -28,11 +28,11 @@ from ignite.contrib.handlers.tensorboard_logger import *
 from torch.utils.data import DataLoader
 from torchmetrics import *
 #import ptvsd
-from stopping_strategy import *
-from loss import dice_loss, focal_loss, tversky_loss
+from deep_learning.stopping_strategy import *
+from deep_learning.loss import dice_loss, focal_loss, tversky_loss
 from utility import divide_image_symmetry_line, get_symmetry_line, remove_blobs, remove_blobs_spine
-from thorax import segment_thorax
-from utils import extract_cranial_features
+from Symmetry.thorax import segment_thorax
+from utils import extract_cranial_features, extract_symmetry_features
 
 def train_cranial_model(fold_cnt, train_features, train_lbl):
     model = SVC();
@@ -46,6 +46,12 @@ def train_caudal_model(fold_cnt, train_features, train_lbl):
     pickle.dump(model, open(f'results\\{fold_cnt}\\caudal_model.pt', 'wb'));
     return model;
 
+def train_symmetry_model(fold_cnt, train_features, train_lbl):
+    model = SVC();
+    model.fit(train_features, train_lbl);
+    pickle.dump(model, open(f'results\\{fold_cnt}\\caudal_model.pt', 'wb'));
+    return model;
+
 def train_full_model(fold_cnt, train_features, train_lbl):
     model = SVC();
     model.fit(train_features, train_lbl);
@@ -54,6 +60,7 @@ def train_full_model(fold_cnt, train_features, train_lbl):
     
 
 def evaluate_test_data(fold_cnt, segmentation_models, classification_models, test_imgs, test_grain_lbl, test_lbl):
+    all_predictions = [];
     for radiograph_image_path in test_imgs:
         file_name = os.path.basename(radiograph_image_path);
         file_name = file_name[:file_name.rfind('.')];
@@ -104,7 +111,8 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
         thorax_left = segment_thorax(ribs_left);
         thorax_right = segment_thorax(ribs_right);
         whole_thorax = segment_thorax(ribs);
-        #symmetry features
+        symmetry_features = extract_symmetry_features(thorax_left, thorax_right);
+        symmetry_lbl = classification_models[2].predict(symmetry_features);
         #----------------------------------------------------
 
         #Cranial
@@ -116,7 +124,7 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
         #Caudal
         caudal = diaphragm - whole_thorax;
         caudal_features = extract_cranial_features(caudal);
-        caudal_lbl = classification_models[0].predict(cranial_features);
+        caudal_lbl = classification_models[1].predict(cranial_features);
         #-----------------------------------------------------
 
         #Sternum
@@ -128,27 +136,44 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
             sternum_lbl = 0;
         #-----------------------------------------------------
 
+        quality_lbl = classification_models[3].predict([cranial_lbl, caudal_lbl, symmetry_lbl, sternum_lbl]);
+
+        all_predictions.append([cranial_lbl, caudal_lbl, symmetry_lbl, sternum_lbl, quality_lbl]);
 
 
+        pickle.dump([cranial_features, caudal_features, symmetry_features, sternum_features], f'results\\{fold_cnt}\\test\\{file_name}.feat');
+    
 
+    #get performance metrics
 
-        pickle.dump([cranial_features, caudal_features, sternum_features], f'results\\{fold_cnt}\\test\\{file_name}.feat');
+    cranial_precision, cranial_recall, cranial_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,0], all_predictions[:,0]);
+    cranial_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,0]);
 
+    caudal_precision, caudal_recall, caudal_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,1], all_predictions[:,1]);
+    caudal_accuracy = accuracy_score(test_grain_lbl[:,1], all_predictions[:,1]);
 
+    symmetry_precision, symmetry_recall, symmetry_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,2], all_predictions[:,2]);
+    symmetry_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,2]);
+
+    sternum_precision, sternum_recall, sternum_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,3], all_predictions[:,3]);
+    sternum_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,3]);
+
+    quality_precision, quality_recall, quality_f1,_ = precision_recall_fscore_support(test_lbl, all_predictions[:,4]);
+    quality_accuracy = accuracy_score(test_lbl, all_predictions[:,4]);
+    #--------------------------------------------------
+
+    print(('\n'+'%10s'*5)%('Type', 'Precision', 'Recall', 'F1', 'Accuracy'));
+    print(('\n'+'%10s'*1 + '%10d'*4)%('Cranial',cranial_precision, cranial_recall, cranial_f1, cranial_accuracy));
+    print(('\n'+'%10s'*1 + '%10d'*4)%('Caudal',caudal_precision, caudal_recall, caudal_f1, caudal_accuracy));
+    print(('\n'+'%10s'*1 + '%10d'*4)%('Symmetry',symmetry_precision, symmetry_recall, symmetry_f1, symmetry_accuracy));
+    print(('\n'+'%10s'*1 + '%10d'*4)%('Sternum',sternum_precision, sternum_recall, sternum_f1, sternum_accuracy));
+    print(('\n'+'%10s'*1 + '%10d'*4)%('Quality',quality_precision, quality_recall, quality_f1, quality_accuracy));
 
 class NetworkTrainer():
 
     def __init__(self):
         self.__initialize();
         pass
-
-    #This function should be called once the program starts
-    def __initialize(self,):
-        self.scaler = torch.cuda.amp.grad_scaler.GradScaler();
-        self.precision_estimator = Precision(num_classes=3).to(config.DEVICE);
-        self.recall_estimator = Recall(num_classes=3).to(config.DEVICE);
-        self.accuracy_esimator = Accuracy(num_classes=3).to(config.DEVICE);
-        self.f1_esimator = F1Score(num_classes=3).to(config.DEVICE);
 
     def __loss_func(self, output, gt):
         f_loss = focal_loss(output, gt,  arange_logits=True, mutual_exclusion=True);
@@ -219,7 +244,13 @@ class NetworkTrainer():
         return np.mean(epoch_loss), np.mean(total_acc), np.mean(total_prec), np.mean(total_rec), np.mean(total_f1);
 
 
-    def train(self, task_name, model, fold_cnt, train_imgs, train_mask, test_imgs, test_mask):
+    def train(self, task_name, num_classes, model, fold_cnt, train_imgs, train_mask, test_imgs, test_mask):
+
+        self.scaler = torch.cuda.amp.grad_scaler.GradScaler();
+        self.precision_estimator = Precision(num_classes=num_classes).to(config.DEVICE);
+        self.recall_estimator = Recall(num_classes=num_classes).to(config.DEVICE);
+        self.accuracy_esimator = Accuracy(num_classes=num_classes).to(config.DEVICE);
+        self.f1_esimator = F1Score(num_classes=num_classes).to(config.DEVICE);
 
         train_dataset = CanineDataset(train_imgs, train_mask, config.train_transforms);
         valid_dataset = CanineDataset(test_imgs, test_mask, config.valid_transforms);

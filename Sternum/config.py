@@ -6,6 +6,7 @@ LEARNING_RATE = 1e-4
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu';
 BATCH_SIZE = 2;
 IMAGE_SIZE = 1024
+EPSILON = 1e-5
 
 train_transforms = A.Compose(
 [

@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import pdb
 from scipy import stats
 from torch.utils.data.dataset import Dataset
-from Config import BATCH_SIZE, DEVICE, NUM_WORKERS
+from config import BATCH_SIZE, DEVICE, NUM_WORKERS
 from NetworkDataset import *
 from torch import linalg as la
 

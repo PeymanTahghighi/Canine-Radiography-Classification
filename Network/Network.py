@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
-from Config import DEVICE
+from config import DEVICE
 #===============================================================
 #===============================================================
 
