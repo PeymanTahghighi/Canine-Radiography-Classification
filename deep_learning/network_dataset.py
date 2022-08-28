@@ -22,7 +22,7 @@ class CanineDataset(Dataset):
     def __getitem__(self, index):
         radiograph_image_path = self.__radiographs[index];
         
-        radiograph_image = cv2.imread(radiograph_image_path,cv2.IMREAD_GRAYSCALE);
+        radiograph_image = cv2.imread(os.path.join(config.IMAGE_DATASET_ROOT,f'{radiograph_image_path}.jpeg'),cv2.IMREAD_GRAYSCALE);
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
         radiograph_image = clahe.apply(radiograph_image);
         radiograph_image = np.expand_dims(radiograph_image, axis=2);

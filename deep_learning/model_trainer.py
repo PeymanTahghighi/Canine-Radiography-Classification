@@ -172,7 +172,6 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
 class NetworkTrainer():
 
     def __init__(self):
-        self.__initialize();
         pass
 
     def __loss_func(self, output, gt):
@@ -277,7 +276,7 @@ class NetworkTrainer():
         print(f'Started training task: {task_name}');
 
         while(True):
-            self.model.train();
+            model.train();
             self.__train_one_epoch(e, train_loader,model, optimizer);
 
             model.eval();
@@ -292,7 +291,7 @@ class NetworkTrainer():
             if(valid_loss < best):
                 print("New best model found!");
                 best = valid_loss;
-                best_model = deepcopy(self.model.state_dict());
+                best_model = deepcopy(model.state_dict());
                 best_prec = valid_precision;
                 best_recall = valid_recall;
                 best_f1 = valid_f1;

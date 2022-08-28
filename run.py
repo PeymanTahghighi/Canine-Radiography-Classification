@@ -12,12 +12,13 @@ from deep_learning.network import Unet
 from deep_learning.model_trainer import NetworkTrainer, evaluate_test_data, train_caudal_model, train_cranial_model, train_full_model, train_symmetry_model
 from Symmetry.thorax import segment_thorax
 from utils import create_folder, extract_cranial_features, extract_symmetry_features
+from tqdm import tqdm
 
 #---------------------------------------------------------
 def update_folds(root_dataframe, num_folds = 5):
 
     #find intersection with spine and ribs since it hasn't been labelled yet
-    spine_and_ribs = pickle.load(open('C:\\PhD\\Miscellaneous\\Spine and Ribs\\SpineandRibs.uog','rb'));
+    spine_and_ribs = pickle.load(open('C:\\Users\\Admin\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\SpineandRibs.uog','rb'));
     img_list_all = list(root_dataframe['Image']);
     img_list_all = list(map(str, img_list_all));
     lbl_list_all = list(root_dataframe['Diagnosis']);
@@ -34,10 +35,10 @@ def update_folds(root_dataframe, num_folds = 5):
 
     create_folder('cache');
 
-    for s in spine_and_ribs.keys():
+    for s in tqdm(spine_and_ribs.keys()):
         if spine_and_ribs[s][0]=='labeled':
             file_name = s[:s.rfind('.')];
-            meta_file = pickle.load(open(f'C:\\PhD\\Miscellaneous\\Spine and Ribs\\labels\\{file_name}.meta', 'rb'));
+            meta_file = pickle.load(open(f'C:\\Users\\Admin\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels\\{file_name}.meta', 'rb'));
             if 'Ribs' in meta_file.keys() and 'Spine' in meta_file.keys():
                 curr_masks  = [];
                 
@@ -92,9 +93,9 @@ def update_folds(root_dataframe, num_folds = 5):
                 sternum = np.logical_and(sternum_mask.squeeze(), np.where(whole_thorax>0,1,0)).astype(np.uint8);
                 sternum_features = np.sum(sternum, (0,1));
                 #-----------------------------------------------------
-                cv2.imshow('sternum', sternum*255);
-                cv2.imshow('sternum_mask', np.uint8(sternum_mask*255));
-                cv2.waitKey();
+                # cv2.imshow('sternum', sternum*255);
+                # cv2.imshow('sternum_mask', np.uint8(sternum_mask*255));
+                # cv2.waitKey();
 
                 #symmetry
                 sym_line = get_symmetry_line(spine_mask*255);
@@ -114,19 +115,24 @@ def update_folds(root_dataframe, num_folds = 5):
 
     le = LabelEncoder();
     lbl_list =  le.fit_transform(lbl_list);
+    img_list = np.array(img_list);
+    mask_list = np.array(mask_list);
+    lbl_list = np.array(lbl_list);
+    grain_lbl_list = np.array(grain_lbl_list);
+    features_list = np.array(features_list);
 
     skfold = StratifiedKFold(num_folds, shuffle=True, random_state=42);
     fold_cnt = 0;
     for train_idx, test_idx in skfold.split(img_list, lbl_list):
         pickle.dump([img_list[train_idx], mask_list[train_idx], lbl_list[train_idx], grain_lbl_list[train_idx], features_list[train_idx], img_list[test_idx], mask_list[test_idx], lbl_list[test_idx], 
         grain_lbl_list[train_idx]], 
-        open(f'{fold_cnt}.fold', 'wb'));
+        open(f'cache\\{fold_cnt}.fold', 'wb'));
         fold_cnt += 1;
 #---------------------------------------------------------
 
 #---------------------------------------------------------
 def load_folds():
-    fold_lst = glob('*.fold');
+    fold_lst = glob('cache\\*.fold');
     folds = [];
     for f in fold_lst:
         folds.append(pickle.load(open(f, 'rb')));
@@ -139,18 +145,21 @@ if __name__ == "__main__":
     root_dataframe = pd.read_excel('G:\\My Drive\\dvvd_list_final.xlsx');
 
     #(1-1)
-    update_folds(root_dataframe);
+    #update_folds(root_dataframe);
     #(1-2)
     folds = load_folds();
 
     newtwork_trainer = NetworkTrainer();
-    spine_and_ribs_segmentation_model = Unet(3);
-    diaphragm_segmentation_model = Unet(1);
-    sternum_segmentation_model = Unet(1);
+    spine_and_ribs_segmentation_model = Unet(3).to(config.DEVICE);
+    diaphragm_segmentation_model = Unet(1).to(config.DEVICE);
+    sternum_segmentation_model = Unet(1).to(config.DEVICE);
 
     #(2)
     for idx,f in enumerate(folds):
         train_imgs, train_mask, train_lbl, train_grain_lbl, train_features, test_imgs, test_mask, test_lbl, test_grain_lbl = f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8];
+        le = LabelEncoder();
+        train_grain_lbl[:,3] =  le.fit_transform(train_grain_lbl[:,3]);
+        test_grain_lbl[:,3] = le.transform(test_grain_lbl[:,3]);
 
         #create root fold folder
         create_folder(f'results\\{idx}');

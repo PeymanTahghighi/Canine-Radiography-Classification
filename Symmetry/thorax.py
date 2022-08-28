@@ -7,8 +7,22 @@ import cv2
 from glob import glob
 import config
 import os
+import threading
 
 GAP = 50;
+
+def subtask(img, init, total_thorax, idx):
+    snake = active_contour(gaussian(img, 3, preserve_range=False),
+                            init, alpha=0.09, beta=0.1, gamma=0.001, w_edge=15)
+        
+    snake = np.array(snake, dtype=np.int32);
+    tmp = copy(snake);
+    snake[:,0] = tmp[:, 1];
+    snake[:,1] = tmp[:, 0];
+    tmp = np.zeros(shape=img.shape, dtype=np.uint8);
+
+    thorax_region = cv2.fillPoly(tmp, [snake], color = (255,255,255));
+    total_thorax[idx] = thorax_region;
 
 def segment_thorax(img):
 
@@ -40,37 +54,33 @@ def segment_thorax(img):
 
     x_length = (x_end - x_start);
     y_length = (y_end - y_start);
-    range = [(0,0), (-x_length/4, -y_length/4), (-x_length/4, y_length/4), (x_length/4, -y_length/4), (x_length/4, y_length/4)];
-    total_thorax = None;
+    val_range = [(0,0), (-x_length/4, -y_length/4), (-x_length/4, y_length/4), (x_length/4, -y_length/4), (x_length/4, y_length/4)];
+    total_thorax = [None]*5;
     first = True;
-    for v in range:
+    threads = list();
+    for idx,v in enumerate(val_range):
         s = np.linspace(0, 2*np.pi, 1000)
         c = x_start + x_length/2 + v[0] + x_length/2*np.cos(s)
         r = y_start + y_length/2 + v[1] +  y_length/2*np.sin(s)
         init = np.array([r, c]).T
+        x = threading.Thread(target=subtask, args=(img, init, total_thorax, idx));
+        threads.append(x);
+        x.start();
+    
+    for t in threads:
+        t.join();
 
-        snake = active_contour(gaussian(img, 3, preserve_range=False),
-                            init, alpha=0.09, beta=0.1, gamma=0.001, w_edge=15)
+
         
-        snake = np.array(snake, dtype=np.int32);
-        tmp = copy(snake);
-        snake[:,0] = tmp[:, 1];
-        snake[:,1] = tmp[:, 0];
-        tmp = np.zeros(shape=img.shape, dtype=np.uint8);
 
-        thorax_region = cv2.fillPoly(tmp, [snake], color = (255,255,255));
+    ret_thorax = total_thorax[0];
+    for i in range(1,5):
+        ret_thorax = cv2.bitwise_or(total_thorax[i], ret_thorax);
+    
+    #cv2.imshow('t', ret_thorax);
+    #cv2.waitKey();
 
-
-        if first is True:
-            total_thorax = thorax_region;
-            first = False;
-        else:
-            total_thorax = cv2.bitwise_or(total_thorax, thorax_region);
-        # cv2.imshow("total", total_thorax);
-        # cv2.waitKey();
-        #print("added new thorax...");
-
-    return total_thorax;
+    return ret_thorax;
 
 if __name__ == "__main__":
 
@@ -83,7 +93,7 @@ if __name__ == "__main__":
         #original_img = cv2.imread(os.path.sep.join(['ribs', file_name]), cv2.IMREAD_GRAYSCALE);
         #original_img = cv2.resize(original_img, (IMG_WDITH, IMG_HEIGHT));
         img = cv2.imread(img_name, cv2.IMREAD_GRAYSCALE);
-        img = cv2.resize(img, (IMG_WDITH,IMG_HEIGHT));
+        img = cv2.resize(img, (1024,1024));
         h,w = img.shape;
 
         cols_sum = np.sum(img, axis = 0);
