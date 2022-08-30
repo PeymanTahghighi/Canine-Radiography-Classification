@@ -182,7 +182,7 @@ if __name__ == "__main__":
 
         #(2-3)
         print('------------- Training Sternum ---------------\n');
-        sternum_segmentation_model = newtwork_trainer.train('Sternum', 1, sternum_segmentation_model, idx,  train_imgs, train_mask[:,2], test_imgs, test_mask[:,2]);
+        sternum_segmentation_model = diaphragm_segmentation_model;
 
         evaluate_test_data(idx, 
         [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, sternum_segmentation_model], 

@@ -99,23 +99,23 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
 
         #diaphragm
         diaphragm = segmentation_models[1](radiograph_image.unsqueeze(dim=0));
-        diaphragm = torch.sigmoid(diaphragm)[0].permute(1,2,0).detach().cpu().numpy();
+        diaphragm = torch.sigmoid(diaphragm)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
         diaphragm = diaphragm > 0.5;
         diaphragm = np.uint8(diaphragm)*255;
         #----------------------------------------------------
 
         #sternum
         sternum = segmentation_models[2](radiograph_image.unsqueeze(dim=0));
-        sternum = torch.sigmoid(sternum)[0].permute(1,2,0).detach().cpu().numpy();
+        sternum = torch.sigmoid(sternum)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
         sternum = sternum > 0.5;
         sternum = np.uint8(sternum);
         #----------------------------------------------------
 
-        cv2.imshow('ribs', ribs);
-        cv2.imshow('spine', spine);
-        cv2.imshow('diaphragm', diaphragm);
-        cv2.imshow('sternum', sternum*255);
-        cv2.waitKey();
+        # cv2.imshow('ribs', ribs);
+        # cv2.imshow('spine', spine);
+        # cv2.imshow('diaphragm', diaphragm);
+        # cv2.imshow('sternum', sternum*255);
+        # cv2.waitKey();
 
         #Symmetry
         sym_line = get_symmetry_line(spine);
@@ -124,36 +124,39 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
         thorax_right = segment_thorax(ribs_right);
         whole_thorax = segment_thorax(ribs);
         symmetry_features = extract_symmetry_features(thorax_left, thorax_right);
-        symmetry_lbl = classification_models[2].predict(symmetry_features);
+        symmetry_features = np.array(symmetry_features);
+        symmetry_lbl = classification_models[2].predict(symmetry_features.reshape(1,-1));
         #----------------------------------------------------
 
         #Cranial
         cranial = spine - whole_thorax;
         cranial_features = extract_cranial_features(cranial);
-        cranial_lbl = classification_models[0].predict(cranial_features);
+        cranial_features = np.array(cranial_features);
+        cranial_lbl = classification_models[0].predict(cranial_features.reshape(1,-1));
         #-----------------------------------------------------
 
         #Caudal
         caudal = diaphragm - whole_thorax;
         caudal_features = extract_cranial_features(caudal);
-        caudal_lbl = classification_models[1].predict(cranial_features);
+        caudal_features = np.array(caudal_features)
+        caudal_lbl = classification_models[1].predict(cranial_features.reshape(1,-1));
         #-----------------------------------------------------
 
         #Sternum
         sternum = np.logical_and(sternum.squeeze(), np.where(whole_thorax>0,1,0)).astype(np.uint8);
-        sternum_features = np.sum(sternum, (1,2));
+        sternum_features = np.sum(sternum, (0,1));
         if sternum_features > 32:
             sternum_lbl = 1;
         else:
             sternum_lbl = 0;
         #-----------------------------------------------------
 
-        quality_lbl = classification_models[3].predict([cranial_lbl, caudal_lbl, symmetry_lbl, sternum_lbl]);
+        quality_lbl = classification_models[3].predict(np.array([cranial_lbl, caudal_lbl, symmetry_lbl, sternum_lbl]).reshape(1,-1));
 
         all_predictions.append([cranial_lbl, caudal_lbl, symmetry_lbl, sternum_lbl, quality_lbl]);
 
 
-        pickle.dump([cranial_features, caudal_features, symmetry_features, sternum_features], f'results\\{fold_cnt}\\test\\{file_name}.feat');
+        pickle.dump([cranial_features, caudal_features, symmetry_features, sternum_features], open(f'results\\{fold_cnt}\\{file_name}.feat','wb'));
     
 
     #get performance metrics
@@ -321,7 +324,7 @@ class NetworkTrainer():
             #if stopping_strategy(valid_loss, train_loss) is False:
             break;
             e += 1;
-        f = open(f'results\\{fold_cnt}\\res.txt', 'w');
+        f = open(f'results\\{fold_cnt}\\res_{task_name}.txt', 'w');
         f.write(f"Valid \tPrecision: {best_prec}\tRecall: {best_recall}\tAccuracy: {best_acc}\tF1: {best_f1}");
         f.close();
         pickle.dump(best_model, open(f'results\\{fold_cnt}\\{task_name}.pt', 'wb'));
