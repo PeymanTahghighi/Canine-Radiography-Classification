@@ -5,8 +5,8 @@ import os
 
 from tqdm import tqdm
 
-DEST_FOLDER = 'C:\\PhD\\Miscellaneous\\Spine and Ribs';
-ORIG_FOLDER = 'C:\\PhD\\Thesis\\Dataset\\DVVD';
+DEST_FOLDER = 'C:\\Users\\Admin\\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs';
+ORIG_FOLDER = 'C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\\DVVD-Final';
 PROJECT_NAME = 'SpineandRibs';
 
 def compare():
