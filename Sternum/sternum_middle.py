@@ -86,10 +86,6 @@ def scale_spine(img_path, scale_factor = 2):
     out = smooth_boundaries(out,25);
     #out = smooth_boundaries(out,50);
     out = scale_width(out,3);
-    spine = spine.astype("uint8");
-    spine = cv2.resize(spine, (512,512));
-    out = out.astype("uint8");
-    out = cv2.resize(out, (512,512));
     # cv2.imshow('orig', spine.astype("uint8"));
     # cv2.imshow('out', out.astype("uint8"));
     # # #cv2.imshow('out1', out1.astype("uint8"));

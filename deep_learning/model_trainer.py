@@ -36,20 +36,26 @@ from utils import extract_cranial_features, extract_symmetry_features
 
 def train_cranial_model(fold_cnt, train_features, train_lbl):
     model = SVC();
+    train_features = list(train_features);
+    train_features = np.array(train_features);
     model.fit(train_features, train_lbl);
     pickle.dump(model, open(f'results\\{fold_cnt}\\cranial_model.pt', 'wb'));
     return model;
 
 def train_caudal_model(fold_cnt, train_features, train_lbl):
     model = SVC();
+    train_features = list(train_features);
+    train_features = np.array(train_features);
     model.fit(train_features, train_lbl);
     pickle.dump(model, open(f'results\\{fold_cnt}\\caudal_model.pt', 'wb'));
     return model;
 
 def train_symmetry_model(fold_cnt, train_features, train_lbl):
     model = SVC();
+    train_features = list(train_features);
+    train_features = np.array(train_features);
     model.fit(train_features, train_lbl);
-    pickle.dump(model, open(f'results\\{fold_cnt}\\caudal_model.pt', 'wb'));
+    pickle.dump(model, open(f'results\\{fold_cnt}\\symmetry_model.pt', 'wb'));
     return model;
 
 def train_full_model(fold_cnt, train_features, train_lbl):
@@ -68,7 +74,7 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
         file_name = os.path.basename(radiograph_image_path);
         file_name = file_name[:file_name.rfind('.')];
 
-        radiograph_image = cv2.imread(radiograph_image_path,cv2.IMREAD_GRAYSCALE);
+        radiograph_image = cv2.imread(os.path.join(config.IMAGE_DATASET_ROOT,f'{radiograph_image_path}.jpeg'),cv2.IMREAD_GRAYSCALE);
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
         radiograph_image = clahe.apply(radiograph_image);
         radiograph_image = np.expand_dims(radiograph_image, axis=2);
@@ -88,7 +94,7 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
         spine = (out == 2).astype("uint8")*255;
 
         ribs = remove_blobs(ribs);
-        spine = remove_blobs_spine(spine);
+        spine = remove_blobs_spine(spine).astype("uint8");
         #----------------------------------------------------
 
         #diaphragm
@@ -104,6 +110,12 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
         sternum = sternum > 0.5;
         sternum = np.uint8(sternum);
         #----------------------------------------------------
+
+        cv2.imshow('ribs', ribs);
+        cv2.imshow('spine', spine);
+        cv2.imshow('diaphragm', diaphragm);
+        cv2.imshow('sternum', sternum*255);
+        cv2.waitKey();
 
         #Symmetry
         sym_line = get_symmetry_line(spine);
@@ -128,7 +140,7 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
         #-----------------------------------------------------
 
         #Sternum
-        sternum = np.logical_and(sternum.squeeze(), whole_thorax).astype(np.uint8);
+        sternum = np.logical_and(sternum.squeeze(), np.where(whole_thorax>0,1,0)).astype(np.uint8);
         sternum_features = np.sum(sternum, (1,2));
         if sternum_features > 32:
             sternum_lbl = 1;
@@ -175,9 +187,14 @@ class NetworkTrainer():
         pass
 
     def __loss_func(self, output, gt):
-        f_loss = focal_loss(output, gt,  arange_logits=True, mutual_exclusion=True);
-        t_loss = tversky_loss(output, gt, sigmoid=False, arange_logits=True, mutual_exclusion=True)
-        return  t_loss + f_loss;
+        if self.num_classes > 1:
+            f_loss = focal_loss(output, gt,  arange_logits=True, mutual_exclusion=True);
+            t_loss = tversky_loss(output, gt, sigmoid=False, arange_logits=True, mutual_exclusion=True)
+            return  t_loss + f_loss;
+        else:
+            f_loss = focal_loss(output, gt,  arange_logits=True, mutual_exclusion=False);
+            t_loss = tversky_loss(output, gt, sigmoid=True, arange_logits=True, mutual_exclusion=False)
+            return  t_loss + f_loss;
         
     def __train_one_epoch(self, epoch, loader, model, optimizer):
         epoch_loss = [];
@@ -224,8 +241,11 @@ class NetworkTrainer():
 
                 epoch_loss.append(loss.item());
                 
-                pred = (torch.softmax(pred, dim = 1)).permute(0,2,3,1);
-                pred = torch.argmax(pred, dim = 3);
+                if self.num_classes > 1:
+                    pred = (torch.softmax(pred, dim = 1)).permute(0,2,3,1);
+                    pred = torch.argmax(pred, dim = 3);
+                else:
+                    pred = torch.sigmoid(pred) > 0.5;
                 prec = self.precision_estimator(pred.flatten(), mask.flatten().long());
                 rec = self.recall_estimator(pred.flatten(), mask.flatten().long());
                 acc = self.accuracy_esimator(pred.flatten(), mask.flatten().long());
@@ -245,11 +265,12 @@ class NetworkTrainer():
 
     def train(self, task_name, num_classes, model, fold_cnt, train_imgs, train_mask, test_imgs, test_mask):
 
+        self.num_classes = num_classes;
         self.scaler = torch.cuda.amp.grad_scaler.GradScaler();
-        self.precision_estimator = Precision(num_classes=num_classes).to(config.DEVICE);
-        self.recall_estimator = Recall(num_classes=num_classes).to(config.DEVICE);
-        self.accuracy_esimator = Accuracy(num_classes=num_classes).to(config.DEVICE);
-        self.f1_esimator = F1Score(num_classes=num_classes).to(config.DEVICE);
+        self.precision_estimator = Precision(num_classes=num_classes, multiclass=False if num_classes ==1 else True).to(config.DEVICE);
+        self.recall_estimator = Recall(num_classes=num_classes, multiclass=False if num_classes ==1 else True).to(config.DEVICE);
+        self.accuracy_esimator = Accuracy(num_classes=num_classes, multiclass=False if num_classes ==1 else True).to(config.DEVICE);
+        self.f1_esimator = F1Score(num_classes=num_classes, multiclass=False if num_classes ==1 else True).to(config.DEVICE);
 
         train_dataset = CanineDataset(train_imgs, train_mask, config.train_transforms);
         valid_dataset = CanineDataset(test_imgs, test_mask, config.valid_transforms);
@@ -297,10 +318,10 @@ class NetworkTrainer():
                 best_f1 = valid_f1;
                 best_acc = valid_acc;
 
-            if stopping_strategy(valid_loss, train_loss) is False:
-                break;
+            #if stopping_strategy(valid_loss, train_loss) is False:
+            break;
             e += 1;
-        f = open(f'res{fold_cnt}.txt', 'w');
+        f = open(f'results\\{fold_cnt}\\res.txt', 'w');
         f.write(f"Valid \tPrecision: {best_prec}\tRecall: {best_recall}\tAccuracy: {best_acc}\tF1: {best_f1}");
         f.close();
         pickle.dump(best_model, open(f'results\\{fold_cnt}\\{task_name}.pt', 'wb'));

@@ -169,10 +169,11 @@ if __name__ == "__main__":
         
         #(2-1)
         print('------------- Training spine and ribs model ---------------\n');
-        spine_and_ribs_segmentation_model = newtwork_trainer.train('spine and ribs', 3, spine_and_ribs_segmentation_model, idx, train_imgs, train_mask[:,0], test_imgs, test_mask[:,0]);
         cranial_classification_model = train_cranial_model(idx, train_features[:,0], train_grain_lbl[:,0]);
         caudal_classification_model = train_caudal_model(idx, train_features[:,1], train_grain_lbl[:,1]);
         symmetry_classification_model = train_symmetry_model(idx, train_features[:,2], train_grain_lbl[:,2]);
+        spine_and_ribs_segmentation_model = newtwork_trainer.train('spine and ribs', 3, spine_and_ribs_segmentation_model, idx, train_imgs, train_mask[:,0], test_imgs, test_mask[:,0]);
+        
 
 
         #(2-2)

@@ -81,9 +81,12 @@ def tversky_loss(logits,
     else:
         true = one_hot(true.long(), 3);
         logits = torch.softmax(logits,dim=3);
+        true = true.squeeze(dim = 3);
+        
+    if true.dim() < 4:
+        true = true.unsqueeze(dim=3)
     
     dims = (1,2,3);
-    true = true.squeeze(dim = 3);
     tp = torch.sum(logits * true, dims);
     fp = torch.sum((1-logits) * true, dims);
     fn = torch.sum(logits * (1-true), dims);

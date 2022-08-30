@@ -147,6 +147,71 @@ def remove_blobs(ribs):
             
     return ret_img;
 
+def smooth_boundaries(spine, dist):
+    spine_thresh = np.where(spine[0,:]>0);
+    h,w = spine.shape;
+    left_bound = [];
+    right_bound = [];
+    start = -1;
+    for i in range(h):
+        if np.sum(spine[i,:]) > 0:
+            if start == -1:
+                start = i;
+            spine_thresh = np.where(spine[i,:]>0);
+            left_bound.append(spine_thresh[0][0]);
+            right_bound.append(spine_thresh[0][-1]);
+
+    local_minimas = [];
+    local_maximas = [];
+    for i in range(dist, len(left_bound)-dist):
+        temp_arr = left_bound[i-dist:i+dist];
+        m = np.min(temp_arr);
+        if m == left_bound[i]:
+            local_minimas.append([m,i+start]);
+    
+    for i in range(dist, len(right_bound)-dist):
+        temp_arr = right_bound[i-dist:i+dist];
+        m = np.max(temp_arr);
+        if m == right_bound[i]:
+            local_maximas.append([m,i+start]);
+    
+    ret = np.zeros_like(spine);
+    for l in range(len(local_minimas)-1):
+        spine = cv2.line(spine, (int(local_minimas[l][0]), int(local_minimas[l][1])), (int(local_minimas[l+1][0]), int(local_minimas[l+1][1])),(255,255,255),1);
+    for l in range(len(local_maximas)-1):
+        spine = cv2.line(spine, (int(local_maximas[l][0]), int(local_maximas[l][1])), (int(local_maximas[l+1][0]), int(local_maximas[l+1][1])),(255,255,255),1);
+    
+    spine = np.where(spine > 0, 1, 0);
+    out = np.zeros_like(spine);
+    for i in range(h):
+        if np.sum(spine[i,:]) > 0:
+            r = spine[i,:];
+            r = np.where(r == 1);
+            s = r[0][0];
+            e = r[0][-1];
+            if s != e:
+                w = int((e - s) / 4);
+                out[i, s:e] = 255;
+            else:
+                out[i,s] = 255;
+    return out;
+
+def scale_width(spine, multiplier):
+    spine = np.where(spine > 0, 1, 0);
+    h,w = spine.shape;
+    out = np.zeros_like(spine);
+    for i in range(h):
+        if np.sum(spine[i,:]) > 0:
+            r = spine[i,:];
+            r = np.where(r == 1);
+            s = r[0][0];
+            e = r[0][-1];
+            if s != e:
+                w = int((e - s) / multiplier);
+                out[i, s-w:e+w] = 255;
+            else:
+                out[i,s] = 255;
+    return out;
 
 def remove_blobs_spine(ribs):
     kernel = np.ones((5,5), dtype=np.uint8);
@@ -167,8 +232,11 @@ def remove_blobs_spine(ribs):
     biggest = np.max(all_area);
     for idx, a in enumerate(all_area):
         if a > 0.2*biggest:
-            #simplify spine
-            cvh = cv2.approxPolyDP(contours[idx], 10,True);
-            ret_img = cv2.fillPoly(ret_img, [cvh], (255,255,255));
+            ret_img = cv2.drawContours(ret_img,contours, idx, (255,255,255), -1);
+    
+    ret_img = smooth_boundaries(ret_img,10);
+    ret_img = smooth_boundaries(ret_img,25);
+    #out = smooth_boundaries(out,50);
+    ret_img = scale_width(ret_img,3);
 
     return ret_img;
