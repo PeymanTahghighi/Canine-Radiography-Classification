@@ -27,6 +27,7 @@ from tqdm import tqdm
 from torch.nn.functional import one_hot, binary_cross_entropy_with_logits, cross_entropy
 from torchmetrics import *
 from stopping_strategy import CombinedTrainValid
+import pickle
 
 DEVICE = 'cuda' if torch.cuda.is_available() else ' cpu';
 
@@ -223,9 +224,10 @@ if __name__ == "__main__":
     # gs = gs.fit(total_features.squeeze(), total_lbl);
     # print(gs.best_score_);
 
-    model = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_efficientnet_widese_b4', pretrained=True);
-    model.classifier.fc =  nn.Linear(1792, 3, bias=True);
+    model = torch.hub.load('pytorch/vision:v0.10.0', 'densenet121', pretrained=True);
+    model.classifier =  nn.Linear(1024, 3, bias=True);
     model = model.to(DEVICE);
+    init_weights = deepcopy(model.state_dict());
     optimizer = optim.Adam(model.parameters(), 1e-5, weight_decay=1e-5);
 
     precision_estimator = Precision(num_classes=3, multiclass=True, average='macro').to(DEVICE);
@@ -237,6 +239,7 @@ if __name__ == "__main__":
 
     fold_cnt = 0;
     for train_id, valid_id in kfold.split(total_imgs, total_lbl):
+        model.load_state_dict(init_weights);
         print(f'Starting fold {fold_cnt}...')
         train_X, train_y = total_imgs[train_id], total_lbl[train_id];    
         valid_X, valid_y = total_imgs[valid_id], total_lbl[valid_id];
@@ -266,6 +269,7 @@ if __name__ == "__main__":
             if(valid_loss < best):
                 print("New best model found!");
                 best = valid_loss;
+                best_model = deepcopy(model.state_dict());
                 best_prec = valid_precision;
                 best_recall = valid_recall;
                 best_f1 = valid_f1;
@@ -280,4 +284,5 @@ if __name__ == "__main__":
         f = open(f'res_{fold_cnt}.txt', 'w');
         f.write(f"Valid \tPrecision: {best_prec}\tRecall: {best_recall}\tAccuracy: {best_acc}\tF1: {best_f1}");
         f.close();
+        pickle.dump(best_model, open(f'{fold_cnt}.dmp', 'wb'));
     
