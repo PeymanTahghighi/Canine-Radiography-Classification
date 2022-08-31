@@ -67,6 +67,7 @@ def train_full_model(fold_cnt, train_features, train_lbl):
 
 def evaluate_test_data(fold_cnt, segmentation_models, classification_models, test_imgs, test_grain_lbl, test_lbl):
     all_predictions = [];
+    cnt = 0;
     for radiograph_image_path in test_imgs:
         file_name = os.path.basename(radiograph_image_path);
         file_name = file_name[:file_name.rfind('.')];
@@ -111,12 +112,6 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
         sternum = np.uint8(sternum);
         #----------------------------------------------------
 
-        # cv2.imshow('ribs', ribs);
-        # cv2.imshow('spine', spine);
-        # cv2.imshow('diaphragm', diaphragm);
-        # cv2.imshow('sternum', sternum*255);
-        # cv2.waitKey();
-
         #Symmetry
         sym_line = get_symmetry_line(spine);
         ribs_left, ribs_right = divide_image_symmetry_line(ribs, sym_line);
@@ -151,26 +146,46 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
             sternum_lbl = 0;
         #-----------------------------------------------------
 
-        quality_lbl = classification_models[3].predict(np.array([cranial_lbl, caudal_lbl, symmetry_lbl, sternum_lbl]).reshape(1,-1));
+        quality_lbl = classification_models[3].predict(np.array([cranial_lbl[0], caudal_lbl[0], symmetry_lbl[0], sternum_lbl]).reshape(1,-1));
 
-        all_predictions.append([cranial_lbl, caudal_lbl, symmetry_lbl, sternum_lbl, quality_lbl]);
+        all_predictions.append([cranial_lbl[0], caudal_lbl[0], symmetry_lbl[0], sternum_lbl, quality_lbl[0]]);
 
 
         pickle.dump([cranial_features, caudal_features, symmetry_features, sternum_features], open(f'results\\{fold_cnt}\\{file_name}.feat','wb'));
+
+        cnt += 1;
+
+        # if cnt > 2:
+        #     all_predictions = np.array(all_predictions);
+        #     cranial_precision, cranial_recall, cranial_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,0], all_predictions[:,0], average='macro');
+        #     cranial_accuracy = accuracy_score(test_grain_lbl[:3,0], all_predictions[:,0]);
+
+        #     caudal_precision, caudal_recall, caudal_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,1], all_predictions[:,1], average='macro');
+        #     caudal_accuracy = accuracy_score(test_grain_lbl[:,1], all_predictions[:,1]);
+
+        #     symmetry_precision, symmetry_recall, symmetry_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,2], all_predictions[:,2], average='macro');
+        #     symmetry_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,2]);
+
+        #     sternum_precision, sternum_recall, sternum_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,3], all_predictions[:,3], average='macro');
+        #     sternum_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,3]);
+
+        #     quality_precision, quality_recall, quality_f1,_ = precision_recall_fscore_support(test_lbl, all_predictions[:,4]);
+        #     quality_accuracy = accuracy_score(test_lbl, all_predictions[:,4]);
     
 
     #get performance metrics
 
-    cranial_precision, cranial_recall, cranial_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,0], all_predictions[:,0]);
-    cranial_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,0]);
+    all_predictions = np.array(all_predictions);
+    cranial_precision, cranial_recall, cranial_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,0], all_predictions[:,0], average='macro');
+    cranial_accuracy = accuracy_score(test_grain_lbl[:3,0], all_predictions[:,0]);
 
-    caudal_precision, caudal_recall, caudal_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,1], all_predictions[:,1]);
+    caudal_precision, caudal_recall, caudal_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,1], all_predictions[:,1], average='macro');
     caudal_accuracy = accuracy_score(test_grain_lbl[:,1], all_predictions[:,1]);
 
-    symmetry_precision, symmetry_recall, symmetry_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,2], all_predictions[:,2]);
+    symmetry_precision, symmetry_recall, symmetry_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,2], all_predictions[:,2], average='macro');
     symmetry_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,2]);
 
-    sternum_precision, sternum_recall, sternum_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,3], all_predictions[:,3]);
+    sternum_precision, sternum_recall, sternum_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,3], all_predictions[:,3], average='macro');
     sternum_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,3]);
 
     quality_precision, quality_recall, quality_f1,_ = precision_recall_fscore_support(test_lbl, all_predictions[:,4]);
@@ -321,8 +336,8 @@ class NetworkTrainer():
                 best_f1 = valid_f1;
                 best_acc = valid_acc;
 
-            #if stopping_strategy(valid_loss, train_loss) is False:
-            break;
+            if stopping_strategy(valid_loss, train_loss) is False:
+                break;
             e += 1;
         f = open(f'results\\{fold_cnt}\\res_{task_name}.txt', 'w');
         f.write(f"Valid \tPrecision: {best_prec}\tRecall: {best_recall}\tAccuracy: {best_acc}\tF1: {best_f1}");

@@ -178,11 +178,11 @@ if __name__ == "__main__":
 
         #(2-2)
         print('------------- Training Diaphragm ---------------\n');
-        diaphragm_segmentation_model = newtwork_trainer.train('Diaphragm', 1, diaphragm_segmentation_model, idx,  train_imgs, train_mask[:,1], test_imgs, test_mask[:,1]);
+        #diaphragm_segmentation_model = newtwork_trainer.train('Diaphragm', 1, diaphragm_segmentation_model, idx,  train_imgs, train_mask[:,1], test_imgs, test_mask[:,1]);
 
         #(2-3)
         print('------------- Training Sternum ---------------\n');
-        sternum_segmentation_model = diaphragm_segmentation_model;
+        sternum_segmentation_model = newtwork_trainer.train('Sternum', 1, sternum_segmentation_model, idx,  train_imgs, train_mask[:,2], test_imgs, test_mask[:,2]);
 
         evaluate_test_data(idx, 
         [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, sternum_segmentation_model], 
