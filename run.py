@@ -145,7 +145,7 @@ if __name__ == "__main__":
     root_dataframe = pd.read_excel('G:\\My Drive\\dvvd_list_final.xlsx');
 
     #(1-1)
-    #update_folds(root_dataframe);
+    update_folds(root_dataframe);
     #(1-2)
     folds = load_folds();
 
@@ -174,8 +174,6 @@ if __name__ == "__main__":
         symmetry_classification_model = train_symmetry_model(idx, train_features[:,2], train_grain_lbl[:,2]);
         spine_and_ribs_segmentation_model = newtwork_trainer.train('spine and ribs', 3, spine_and_ribs_segmentation_model, idx, train_imgs, train_mask[:,0], test_imgs, test_mask[:,0]);
         
-
-
         #(2-2)
         print('------------- Training Diaphragm ---------------\n');
         diaphragm_segmentation_model = newtwork_trainer.train('Diaphragm', 1, diaphragm_segmentation_model, idx,  train_imgs, train_mask[:,1], test_imgs, test_mask[:,1]);
