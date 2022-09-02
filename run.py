@@ -1,4 +1,5 @@
 import os
+from pickletools import optimize
 import pandas as pd
 import pickle
 from sklearn.preprocessing import LabelEncoder
@@ -6,10 +7,12 @@ from sklearn.model_selection import StratifiedKFold
 from glob import glob
 import cv2
 import numpy as np
+from utility import extract_sternum_features, scale_width, smooth_boundaries
+from optimize_models import optimize_caudal_model, optimize_cranial_model, optimize_sternum_model
 from utility import divide_image_symmetry_line, get_symmetry_line
 import config
 from deep_learning.network import Unet
-from deep_learning.model_trainer import NetworkTrainer, evaluate_test_data, train_caudal_model, train_cranial_model, train_full_model, train_symmetry_model
+from deep_learning.model_trainer import NetworkTrainer, evaluate_test_data, train_caudal_model, train_cranial_model, train_full_model, train_sternum_model, train_symmetry_model
 from Symmetry.thorax import segment_thorax
 from utils import create_folder, extract_cranial_features, extract_symmetry_features
 from tqdm import tqdm
@@ -33,6 +36,7 @@ def update_folds(root_dataframe, num_folds = 5):
     grain_lbl_list = [];
     features_list = [];
 
+    create_folder(f'results\\train_data\\');
     create_folder('cache');
 
     for s in tqdm(spine_and_ribs.keys()):
@@ -90,12 +94,12 @@ def update_folds(root_dataframe, num_folds = 5):
                 #-----------------------------------------------------
 
                 #sternum
+                spine_mask_processed = smooth_boundaries(spine_mask,10);
+                spine_mask_processed = smooth_boundaries(spine_mask_processed,25);
+                spine_mask_processed = scale_width(spine_mask_processed, 3);
                 sternum = np.logical_and(sternum_mask.squeeze(), np.where(whole_thorax>0,1,0)).astype(np.uint8);
-                sternum_features = np.sum(sternum, (0,1));
+                sternum_features = extract_sternum_features(sternum,spine_mask_processed);
                 #-----------------------------------------------------
-                # cv2.imshow('sternum', sternum*255);
-                # cv2.imshow('sternum_mask', np.uint8(sternum_mask*255));
-                # cv2.waitKey();
 
                 #symmetry
                 sym_line = get_symmetry_line(spine_mask*255);
@@ -105,13 +109,14 @@ def update_folds(root_dataframe, num_folds = 5):
                 symmetry_features = extract_symmetry_features(thorax_left, thorax_right);
                 #------------------------------------------------------
 
-                
-
                 features_list.append([cranial_features, caudal_features, symmetry_features, sternum_features]);
 
 
                 mask_list.append(curr_masks);
 
+                #store thorax
+                cv2.imwrite(f'results\\train_data\\{file_name}.png', whole_thorax);
+                
 
     le = LabelEncoder();
     lbl_list =  le.fit_transform(lbl_list);
@@ -136,18 +141,19 @@ def load_folds():
     folds = [];
     for f in fold_lst:
         folds.append(pickle.load(open(f, 'rb')));
-    
 
     return folds;
 #---------------------------------------------------------
 
 if __name__ == "__main__":
-    root_dataframe = pd.read_excel('G:\\My Drive\\dvvd_list_final.xlsx');
+    root_dataframe = pd.read_excel('C:\\Users\\Admin\\OneDrive - University of Guelph\\Miscellaneous\\dvvd_list_final.xlsx');
 
     #(1-1)
     update_folds(root_dataframe);
     #(1-2)
     folds = load_folds();
+    #optimize_sternum_model(folds)
+    optimize_caudal_model(folds);
 
     newtwork_trainer = NetworkTrainer();
     spine_and_ribs_segmentation_model = Unet(3).to(config.DEVICE);
@@ -157,12 +163,29 @@ if __name__ == "__main__":
     #(2)
     for idx,f in enumerate(folds):
         train_imgs, train_mask, train_lbl, train_grain_lbl, train_features, test_imgs, test_mask, test_lbl, test_grain_lbl = f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8];
+        
+        #temp: changing labels for symmetry
+        sym_lbl = np.int32(train_grain_lbl[:,2]);
+        above_one = sym_lbl > 1;
+        one_below = sym_lbl <=1;
+        sym_lbl[one_below] = 0;
+        sym_lbl[above_one] = 1;
+        train_grain_lbl[:,2] = sym_lbl;
+
+        sym_lbl = np.int32(test_grain_lbl[:,2]);
+        above_one = sym_lbl > 1;
+        one_below = sym_lbl <=1;
+        sym_lbl[one_below] = 0;
+        sym_lbl[above_one] = 1;
+        test_grain_lbl[:,2] = sym_lbl;
+        #=======================================
+
         le = LabelEncoder();
-        train_grain_lbl[:,3] =  le.fit_transform(train_grain_lbl[:,3]);
-        test_grain_lbl[:,3] = le.transform(test_grain_lbl[:,3]);
+        #train_grain_lbl[:,3] =  le.fit_transform(train_grain_lbl[:,3]);
+       # test_grain_lbl[:,3] = le.transform(test_grain_lbl[:,3]);
 
         #create root fold folder
-        create_folder(f'results\\{idx}');
+        create_folder(f'results\\{idx}', delete_if_exists=False);
 
         print(f'\n================= Starting fold {idx} =================\n');
         full_classification_model = train_full_model(idx, train_grain_lbl, train_lbl);
@@ -172,15 +195,19 @@ if __name__ == "__main__":
         cranial_classification_model = train_cranial_model(idx, train_features[:,0], train_grain_lbl[:,0]);
         caudal_classification_model = train_caudal_model(idx, train_features[:,1], train_grain_lbl[:,1]);
         symmetry_classification_model = train_symmetry_model(idx, train_features[:,2], train_grain_lbl[:,2]);
-        spine_and_ribs_segmentation_model = newtwork_trainer.train('spine and ribs', 3, spine_and_ribs_segmentation_model, idx, train_imgs, train_mask[:,0], test_imgs, test_mask[:,0]);
+        sternum_classification_model = train_sternum_model(idx, train_features[:,3], train_grain_lbl[:,3]);
+        spine_and_ribs_segmentation_model = newtwork_trainer.train('spine and ribs', 3, spine_and_ribs_segmentation_model, idx, train_imgs, train_mask[:,0], 
+        test_imgs, test_mask[:,0], load_trained_model=True);
         
         #(2-2)
         print('------------- Training Diaphragm ---------------\n');
-        #diaphragm_segmentation_model = newtwork_trainer.train('Diaphragm', 1, diaphragm_segmentation_model, idx,  train_imgs, train_mask[:,1], test_imgs, test_mask[:,1]);
+        diaphragm_segmentation_model = newtwork_trainer.train('Diaphragm', 1, diaphragm_segmentation_model, idx,  train_imgs, train_mask[:,1], test_imgs, test_mask[:,1],
+        load_trained_model=True);
 
         #(2-3)
         print('------------- Training Sternum ---------------\n');
-        sternum_segmentation_model = newtwork_trainer.train('Sternum', 1, sternum_segmentation_model, idx,  train_imgs, train_mask[:,2], test_imgs, test_mask[:,2]);
+        sternum_segmentation_model = newtwork_trainer.train('Sternum', 1, sternum_segmentation_model, 
+        idx,  train_imgs, train_mask[:,2], test_imgs, test_mask[:,2], load_trained_model=True);
 
         evaluate_test_data(idx, 
         [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, sternum_segmentation_model], 

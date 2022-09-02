@@ -1,5 +1,8 @@
 from copy import deepcopy
 import pickle
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import OneHotEncoder, RobustScaler
 from sklearn.utils import shuffle
 from numpy.core.fromnumeric import mean
 from numpy.lib.npyio import load
@@ -8,6 +11,7 @@ from torch.utils import data
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from utility import scale_width
 import config
 from deep_learning.network_dataset import CanineDataset
 from deep_learning.network import Unet
@@ -32,10 +36,12 @@ from deep_learning.stopping_strategy import *
 from deep_learning.loss import dice_loss, focal_loss, tversky_loss
 from utility import divide_image_symmetry_line, get_symmetry_line, remove_blobs, remove_blobs_spine
 from Symmetry.thorax import segment_thorax
-from utils import extract_cranial_features, extract_symmetry_features
+from utils import create_folder, extract_cranial_features, extract_symmetry_features
 
 def train_cranial_model(fold_cnt, train_features, train_lbl):
-    model = SVC();
+    params = {'svc__C': 1.0, 'svc__gamma': 0.0001, 'svc__kernel': 'rbf'}
+    model = make_pipeline(RobustScaler(),
+            SVC(C=params['svc__C'], gamma=params['svc__gamma'], kernel = params['svc__kernel']));
     train_features = list(train_features);
     train_features = np.array(train_features);
     model.fit(train_features, train_lbl);
@@ -43,7 +49,9 @@ def train_cranial_model(fold_cnt, train_features, train_lbl):
     return model;
 
 def train_caudal_model(fold_cnt, train_features, train_lbl):
-    model = SVC();
+    params = {'svc__C': 0.0001, 'svc__kernel': 'linear'}
+    model = make_pipeline(RobustScaler(),
+            SVC(C=params['svc__C'], kernel = params['svc__kernel']));
     train_features = list(train_features);
     train_features = np.array(train_features);
     model.fit(train_features, train_lbl);
@@ -51,15 +59,38 @@ def train_caudal_model(fold_cnt, train_features, train_lbl):
     return model;
 
 def train_symmetry_model(fold_cnt, train_features, train_lbl):
-    model = SVC();
+    model = make_pipeline(RobustScaler(),
+            SVC(C=1.0, kernel = 'rbf'));
     train_features = list(train_features);
     train_features = np.array(train_features);
     model.fit(train_features, train_lbl);
     pickle.dump(model, open(f'results\\{fold_cnt}\\symmetry_model.pt', 'wb'));
     return model;
 
+def train_sternum_model(fold_cnt, train_features, train_lbl):
+    train_lbl =  np.array(train_lbl);
+    train_lbl_thresh = train_lbl == 'Mid';
+    train_lbl[train_lbl_thresh] = 1;
+    train_lbl[train_lbl_thresh==False] = 0;
+
+    params = {'svc__C': 0.1, 'svc__gamma': 1000.0, 'svc__kernel': 'rbf'}
+    model = make_pipeline(RobustScaler(),
+            SVC(C=params['svc__C'], gamma=params['svc__gamma'], kernel = params['svc__kernel']));
+    train_features = list(train_features);
+    train_features = np.array(train_features);
+    model.fit(train_features, train_lbl);
+    pickle.dump(model, open(f'results\\{fold_cnt}\\sternum_model.pt', 'wb'));
+    return model;
+
 def train_full_model(fold_cnt, train_features, train_lbl):
-    model = SVC();
+    c_transform = ColumnTransformer([
+        ('onehot', OneHotEncoder(), [3]),
+     ('nothing', 'passthrough', [0,1,2])
+    ]);
+
+    train_features = c_transform.fit_transform(train_features).astype(np.float32);
+    model = make_pipeline(RobustScaler(),
+            SVC(C=1.0, kernel = 'rbf'));
     model.fit(train_features, train_lbl);
     pickle.dump(model, open(f'results\\{fold_cnt}\\full_model.pt', 'wb'));
     return model;
@@ -68,12 +99,8 @@ def train_full_model(fold_cnt, train_features, train_lbl):
 def evaluate_test_data(fold_cnt, segmentation_models, classification_models, test_imgs, test_grain_lbl, test_lbl):
     all_predictions = [];
     cnt = 0;
-    for radiograph_image_path in test_imgs:
-        file_name = os.path.basename(radiograph_image_path);
-        file_name = file_name[:file_name.rfind('.')];
-
-        file_name = os.path.basename(radiograph_image_path);
-        file_name = file_name[:file_name.rfind('.')];
+    create_folder(f'results\\{fold_cnt}\\outputs', delete_if_exists=True);
+    for radiograph_image_path in tqdm(test_imgs):
 
         radiograph_image = cv2.imread(os.path.join(config.IMAGE_DATASET_ROOT,f'{radiograph_image_path}.jpeg'),cv2.IMREAD_GRAYSCALE);
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
@@ -112,6 +139,8 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
         sternum = np.uint8(sternum);
         #----------------------------------------------------
 
+        
+
         #Symmetry
         sym_line = get_symmetry_line(spine);
         ribs_left, ribs_right = divide_image_symmetry_line(ribs, sym_line);
@@ -138,6 +167,7 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
         #-----------------------------------------------------
 
         #Sternum
+        spine_scaled = scale_width(spine,3).astype('uint8');
         sternum = np.logical_and(sternum.squeeze(), np.where(whole_thorax>0,1,0)).astype(np.uint8);
         sternum_features = np.sum(sternum, (0,1));
         if sternum_features > 32:
@@ -146,12 +176,23 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
             sternum_lbl = 0;
         #-----------------------------------------------------
 
-        quality_lbl = classification_models[3].predict(np.array([cranial_lbl[0], caudal_lbl[0], symmetry_lbl[0], sternum_lbl]).reshape(1,-1));
+        # cv2.imshow('spine', spine);
+        # cv2.waitKey();
 
-        all_predictions.append([cranial_lbl[0], caudal_lbl[0], symmetry_lbl[0], sternum_lbl, quality_lbl[0]]);
+        #quality_lbl = classification_models[3].predict(np.array([cranial_lbl[0], caudal_lbl[0], symmetry_lbl[0], sternum_lbl]).reshape(1,-1));
+
+        #all_predictions.append([cranial_lbl[0], caudal_lbl[0], symmetry_lbl[0], sternum_lbl, quality_lbl[0]]);
 
 
-        pickle.dump([cranial_features, caudal_features, symmetry_features, sternum_features], open(f'results\\{fold_cnt}\\{file_name}.feat','wb'));
+        pickle.dump([cranial_features, caudal_features, symmetry_features, sternum_features], open(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}.feat','wb'));
+
+        #store results
+        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_spine.png', spine);
+        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_spine_scaled.png', spine_scaled);
+        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_ribs.png', ribs);
+        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_diaph.png', diaphragm);
+        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_sternum.png', sternum*255);
+        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_thorax.png', whole_thorax);
 
         cnt += 1;
 
@@ -175,29 +216,29 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
 
     #get performance metrics
 
-    all_predictions = np.array(all_predictions);
-    cranial_precision, cranial_recall, cranial_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,0], all_predictions[:,0], average='macro');
-    cranial_accuracy = accuracy_score(test_grain_lbl[:3,0], all_predictions[:,0]);
+    # all_predictions = np.array(all_predictions);
+    # cranial_precision, cranial_recall, cranial_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,0], all_predictions[:,0], average='macro');
+    # cranial_accuracy = accuracy_score(test_grain_lbl[:3,0], all_predictions[:,0]);
 
-    caudal_precision, caudal_recall, caudal_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,1], all_predictions[:,1], average='macro');
-    caudal_accuracy = accuracy_score(test_grain_lbl[:,1], all_predictions[:,1]);
+    # caudal_precision, caudal_recall, caudal_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,1], all_predictions[:,1], average='macro');
+    # caudal_accuracy = accuracy_score(test_grain_lbl[:,1], all_predictions[:,1]);
 
-    symmetry_precision, symmetry_recall, symmetry_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,2], all_predictions[:,2], average='macro');
-    symmetry_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,2]);
+    # symmetry_precision, symmetry_recall, symmetry_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,2], all_predictions[:,2], average='macro');
+    # symmetry_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,2]);
 
-    sternum_precision, sternum_recall, sternum_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,3], all_predictions[:,3], average='macro');
-    sternum_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,3]);
+    # sternum_precision, sternum_recall, sternum_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,3], all_predictions[:,3], average='macro');
+    # sternum_accuracy = accuracy_score(test_grain_lbl[:,0], all_predictions[:,3]);
 
-    quality_precision, quality_recall, quality_f1,_ = precision_recall_fscore_support(test_lbl, all_predictions[:,4]);
-    quality_accuracy = accuracy_score(test_lbl, all_predictions[:,4]);
-    #--------------------------------------------------
+    # quality_precision, quality_recall, quality_f1,_ = precision_recall_fscore_support(test_lbl, all_predictions[:,4]);
+    # quality_accuracy = accuracy_score(test_lbl, all_predictions[:,4]);
+    # #--------------------------------------------------
 
-    print(('\n'+'%10s'*5)%('Type', 'Precision', 'Recall', 'F1', 'Accuracy'));
-    print(('\n'+'%10s'*1 + '%10d'*4)%('Cranial',cranial_precision, cranial_recall, cranial_f1, cranial_accuracy));
-    print(('\n'+'%10s'*1 + '%10d'*4)%('Caudal',caudal_precision, caudal_recall, caudal_f1, caudal_accuracy));
-    print(('\n'+'%10s'*1 + '%10d'*4)%('Symmetry',symmetry_precision, symmetry_recall, symmetry_f1, symmetry_accuracy));
-    print(('\n'+'%10s'*1 + '%10d'*4)%('Sternum',sternum_precision, sternum_recall, sternum_f1, sternum_accuracy));
-    print(('\n'+'%10s'*1 + '%10d'*4)%('Quality',quality_precision, quality_recall, quality_f1, quality_accuracy));
+    # print(('\n'+'%10s'*5)%('Type', 'Precision', 'Recall', 'F1', 'Accuracy'));
+    # print(('\n'+'%10s'*1 + '%10d'*4)%('Cranial',cranial_precision, cranial_recall, cranial_f1, cranial_accuracy));
+    # print(('\n'+'%10s'*1 + '%10d'*4)%('Caudal',caudal_precision, caudal_recall, caudal_f1, caudal_accuracy));
+    # print(('\n'+'%10s'*1 + '%10d'*4)%('Symmetry',symmetry_precision, symmetry_recall, symmetry_f1, symmetry_accuracy));
+    # print(('\n'+'%10s'*1 + '%10d'*4)%('Sternum',sternum_precision, sternum_recall, sternum_f1, sternum_accuracy));
+    # print(('\n'+'%10s'*1 + '%10d'*4)%('Quality',quality_precision, quality_recall, quality_f1, quality_accuracy));
 
 class NetworkTrainer():
 
@@ -281,7 +322,11 @@ class NetworkTrainer():
         return np.mean(epoch_loss), np.mean(total_acc), np.mean(total_prec), np.mean(total_rec), np.mean(total_f1);
 
 
-    def train(self, task_name, num_classes, model, fold_cnt, train_imgs, train_mask, test_imgs, test_mask):
+    def train(self, task_name, num_classes, model, fold_cnt, train_imgs, train_mask, test_imgs, test_mask, load_trained_model = False):
+
+        if load_trained_model is True:
+            model.load_state_dict(pickle.load( open(f'results\\{fold_cnt}\\{task_name}.pt', 'rb')));
+            return model;
 
         self.num_classes = num_classes;
         self.scaler = torch.cuda.amp.grad_scaler.GradScaler();

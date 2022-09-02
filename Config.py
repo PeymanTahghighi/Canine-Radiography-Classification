@@ -6,11 +6,11 @@ EPSILON = 1e-5
 LEARNING_RATE = 1e-4
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu';
 BATCH_SIZE = 2;
-IMAGE_SIZE = 256
+IMAGE_SIZE = 1024
 D_PROJECT_ROOT = 'C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\Diaphragm'
 ST_PROJECT_ROOT = 'C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\\Sternum'
 SR_PROJECT_ROOT = 'C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\\Spine and Ribs'
-IMAGE_DATASET_ROOT = 'D:\\PhD\\Thesis\\DVVD-Final'
+IMAGE_DATASET_ROOT = 'C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\\DVVD-Final'
 
 train_transforms = A.Compose(
 [

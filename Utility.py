@@ -213,10 +213,10 @@ def scale_width(spine, multiplier):
                 out[i,s] = 255;
     return out;
 
-def remove_blobs_spine(ribs):
+def remove_blobs_spine(spine):
     kernel = np.ones((5,5), dtype=np.uint8);
     kernel_c = np.ones((41,41), dtype=np.uint8);
-    opening = cv2.morphologyEx(ribs, cv2.MORPH_OPEN, kernel);
+    opening = cv2.morphologyEx(spine, cv2.MORPH_OPEN, kernel);
     closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel_c);
     # cv2.imshow('open', opening);
     # cv2.imshow('close', closing);
@@ -237,6 +237,22 @@ def remove_blobs_spine(ribs):
     ret_img = smooth_boundaries(ret_img,10);
     ret_img = smooth_boundaries(ret_img,25);
     #out = smooth_boundaries(out,50);
-    ret_img = scale_width(ret_img,3);
-
     return ret_img;
+
+def extract_sternum_features(sternum_mask, spine_mask):
+    sternum_mask = np.where(sternum_mask > 0, 1, 0);
+    spine_mask = np.where(spine_mask > 0, 1, 0);
+
+    total_pixels = np.sum(sternum_mask);
+    masked_sternum = np.maximum(sternum_mask - spine_mask,np.zeros_like(sternum_mask));
+    total_masked_pixels = np.sum(masked_sternum);
+
+    return [total_pixels, total_masked_pixels];
+
+def postprocess_sternum(sternum):
+    kernel = np.ones((9,9), np.uint8);
+    opening = cv2.morphologyEx(sternum, cv2.MORPH_OPEN, kernel);
+    # cv2.imshow('orig', sternum);
+    # cv2.imshow('morth', opening);
+    # cv2.waitKey();
+    return opening;
