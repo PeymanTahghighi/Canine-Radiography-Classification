@@ -23,10 +23,12 @@ def extract_cranial_features(cranial_image):
     total_diameter /= ((w+h)*2);
     return [total_area, total_diameter];
 
-def create_folder(folder_name):
-    if os.path.exists(f'{folder_name}') is True:
-        shutil.rmtree(f'{folder_name}');
-    os.makedirs(f'{folder_name}');
+def create_folder(folder_name, delete_if_exists = True):
+    if delete_if_exists is True:
+        if os.path.exists(f'{folder_name}') is True:
+            shutil.rmtree(f'{folder_name}');
+    if os.path.exists(f'{folder_name}') is False:        
+        os.makedirs(f'{folder_name}');
 
 def crop_top(img):
     contours, hierarchy = cv2.findContours(img, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE);
