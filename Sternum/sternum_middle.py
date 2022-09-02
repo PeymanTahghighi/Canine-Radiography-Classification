@@ -153,13 +153,13 @@ def chech_sternum_middle(file_name):
 
 
 if __name__ == "__main__":
-    # meta_files_paths = glob('C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\\Spine and Ribs\\labels\\*.meta');
-    # #paths = ['C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\\Spine and Ribs\\labels\\792.meta']
-    # for m in meta_files_paths:
-    #     meta_file = pickle.load(open(m,'rb'));
-    #     if 'Ribs' in meta_file.keys() and 'Spine' in meta_file.keys():
-    #         p = os.path.join('C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\\Spine and Ribs\\labels', meta_file['Spine'][2]);
-    #         scale_spine(p);
+    meta_files_paths = glob('C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\\Spine and Ribs\\labels\\*.meta');
+    #paths = ['C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\\Spine and Ribs\\labels\\792.meta']
+    for m in meta_files_paths:
+        meta_file = pickle.load(open(m,'rb'));
+        if 'Ribs' in meta_file.keys() and 'Spine' in meta_file.keys():
+            p = os.path.join('C:\\Users\\Admin\\OneDrive - University of Guelph\Miscellaneous\\Spine and Ribs\\labels', meta_file['Spine'][2]);
+            scale_spine(p);
     labels_file = pd.read_excel('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\dvvd_list_final.xlsx');
     img_lst = list(labels_file['Image']);
     img_lst = list(map(str, img_lst));

@@ -1,6 +1,7 @@
 
 from copy import deepcopy
 from re import S
+from tabnanny import verbose
 import numpy as np
 import cv2
 import pandas as pd
@@ -28,6 +29,10 @@ from torch.nn.functional import one_hot, binary_cross_entropy_with_logits, cross
 from torchmetrics import *
 from stopping_strategy import CombinedTrainValid
 import pickle
+from torch.optim.lr_scheduler import ExponentialLR
+from torch.utils.tensorboard import SummaryWriter
+
+
 
 DEVICE = 'cuda' if torch.cuda.is_available() else ' cpu';
 
@@ -78,6 +83,19 @@ valid_transforms = A.Compose(
     ]
 )
 
+def retarget_img(img):
+    h,w = img.shape;
+    img_row = np.where(img>0);
+    first_row = img_row[0][0];
+    last_row = img_row[0][-1];
+
+    img_row = np.where(np.transpose(img)>0);
+
+    first_col = img_row[0][0];
+    last_col = img_row[0][-1];
+    new_img = img[first_row:last_row, first_col:last_col];
+    return new_img;
+
 class ExposureDataset(Dataset):
     def __init__(self, imgs, lbls, transforms) -> None:
         super().__init__()
@@ -89,7 +107,12 @@ class ExposureDataset(Dataset):
         return len(self.__imgs);
     
     def __getitem__(self, index):
-        img = cv2.imread(self.__imgs[index], cv2.IMREAD_GRAYSCALE);
+        img = cv2.imread(self.__imgs[index][0], cv2.IMREAD_GRAYSCALE);
+        img = cv2.resize(img, (512,512));
+        thorax = cv2.imread(self.__imgs[index][1], cv2.IMREAD_GRAYSCALE);
+        thorax = np.where(thorax > 0, 1, 0);
+        img = (img*thorax).astype("uint8");
+        img = retarget_img(img);
         img = np.expand_dims(img, axis= 2);
         img = np.repeat(img, 3, axis = 2);
 
@@ -104,18 +127,27 @@ def train_step(epoch, model, loader, optimizer):
     total_loss = [];
     pbar = enumerate(loader);
     print(('\n'+'%10s'*2)%('Epoch', 'Loss'));
+    l = len(loader);
     pbar = tqdm(pbar, total= len(loader), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}');
+    accumulation_step = 1;
+    accumulated_loss = [];
     for i, (radiograph, lbl) in pbar:
         radiograph, lbl = radiograph.to(DEVICE), lbl.to(DEVICE);
-        model.zero_grad(set_to_none = True);
         output = model(radiograph);
         loss = focal_loss(output, lbl, mutual_exclusion=True);
-
+        accumulated_loss.append(loss.item());
 
         loss.backward();
-        optimizer.step();
 
-        total_loss.append(loss.item());
+        if (i+1)% accumulation_step == 0:
+            optimizer.step();
+            total_loss.append(np.mean(accumulated_loss));
+            model.zero_grad(set_to_none = True);
+            accumulated_loss = [];
+
+        if i == l-1:
+            print(i);
+
 
         pbar.set_description(('%10s' + '%10.4g')%(epoch, np.mean(total_loss)));
 
@@ -190,7 +222,9 @@ if __name__ == "__main__":
 
         file_name = os.path.basename(img_path);
         file_name = file_name[:file_name.rfind('.')];
-        total_imgs.append(os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'));
+        total_imgs.append([os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'),
+        os.path.join(f'D:\\PhD\\Thesis\\Segmentation Results\\thorax', f'{file_name}_thorax.png')]);
+        
         # img = cv2.imread(os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'), cv2.IMREAD_GRAYSCALE);
         # mask = cv2.threshold(img, thresh=40,maxval=255, type= cv2.THRESH_BINARY)[1];
         # #cv2.imshow('m', mask);
@@ -205,6 +239,7 @@ if __name__ == "__main__":
 
     
     #print(lbl_dict);
+    
 
     le = LabelEncoder();
     total_lbl = le.fit_transform(total_lbl);
@@ -224,20 +259,26 @@ if __name__ == "__main__":
     # gs = gs.fit(total_features.squeeze(), total_lbl);
     # print(gs.best_score_);
 
-    model = torch.hub.load('pytorch/vision:v0.10.0', 'densenet121', pretrained=True);
-    model.classifier =  nn.Linear(1024, 3, bias=True);
+    settings = [{''}];
+
+    model = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_efficientnet_b4', pretrained=True);
+    model.classifier.fc =  nn.Linear(1792, 3, bias=True);
     model = model.to(DEVICE);
     init_weights = deepcopy(model.state_dict());
-    optimizer = optim.Adam(model.parameters(), 1e-5, weight_decay=1e-5);
+    optimizer = optim.RMSprop(model.parameters(), 5e-6, momentum=0.9, weight_decay=1e-5);
+    sched = ExponentialLR(optimizer,0.99, verbose=True);
+    writer = SummaryWriter('exp');
 
     precision_estimator = Precision(num_classes=3, multiclass=True, average='macro').to(DEVICE);
     recall_estimator = Recall(num_classes=3, multiclass=True , average='macro').to(DEVICE);
     accuracy_esimator = Accuracy(num_classes=3, multiclass=True, average='macro').to(DEVICE);
     f1_esimator = F1Score(num_classes=3, multiclass=True, average='macro').to(DEVICE);
 
-    stopping_strategy = CombinedTrainValid(0.7,2);
+    stopping_strategy = CombinedTrainValid(1.0,2);
 
     fold_cnt = 0;
+    total_f1 = list();
+
     for train_id, valid_id in kfold.split(total_imgs, total_lbl):
         model.load_state_dict(init_weights);
         print(f'Starting fold {fold_cnt}...')
@@ -247,8 +288,8 @@ if __name__ == "__main__":
         train_dataset = ExposureDataset(train_X, train_y, train_transforms);
         valid_dataset = ExposureDataset(valid_X, valid_y, valid_transforms);
 
-        train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=1);
-        valid_loader = DataLoader(valid_dataset, batch_size=4, shuffle=True, num_workers=1);
+        train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=1);
+        valid_loader = DataLoader(valid_dataset, batch_size=2, shuffle=True, num_workers=1);
 
         e = 1;
         best = 100;
@@ -266,6 +307,9 @@ if __name__ == "__main__":
             print(f"Epoch {e}\tLoss: {train_loss}\tPrecision: {train_precision}\tRecall: {train_recall}\tAccuracy: {train_acc}\tF1: {train_f1}");
             print(f"Valid \tLoss: {valid_loss}\tPrecision: {valid_precision}\tRecall: {valid_recall}\tAccuracy: {valid_acc}\tF1: {valid_f1}");
 
+            writer.add_scalar(f'Loss{fold_cnt}/train', train_loss, e);
+            writer.add_scalar(f'Loss{fold_cnt}/valid', valid_loss, e);
+
             if(valid_loss < best):
                 print("New best model found!");
                 best = valid_loss;
@@ -277,12 +321,16 @@ if __name__ == "__main__":
 
             if stopping_strategy(valid_loss, train_loss) is False:
                 break;
+            sched.step(e);
 
             e += 1;
 
         fold_cnt += 1;
         f = open(f'res_{fold_cnt}.txt', 'w');
         f.write(f"Valid \tPrecision: {best_prec}\tRecall: {best_recall}\tAccuracy: {best_acc}\tF1: {best_f1}");
+        total_f1.append(best_f1);
         f.close();
         pickle.dump(best_model, open(f'{fold_cnt}.dmp', 'wb'));
+    
+    print(f'avg: {np.mean(total_f1)}');
     
