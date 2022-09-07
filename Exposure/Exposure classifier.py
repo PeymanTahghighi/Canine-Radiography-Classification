@@ -83,7 +83,23 @@ valid_transforms = A.Compose(
     ]
 )
 
-def retarget_img(img):
+def signaltonoise(a, axis=0, ddof=0):
+    a = np.asanyarray(a)
+    m = a.mean(axis)
+    sd = a.std(axis=axis, ddof=ddof)
+    return np.where(sd == 0, 0, m/sd)
+
+def apply_mask(img, mask):
+    # simplified_mask = np.zeros_like(mask);
+    # contours = cv2.findContours(mask, cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)[0];
+    # for c in contours:
+    #     x,y,w,h = cv2.boundingRect(c);
+    #     simplified_mask = cv2.rectangle(simplified_mask, (x,y), (x+w, y+h), (255,255,255),-1);
+
+    mask = np.where(mask>0, 1, 0);
+    img = img * mask;
+    
+
     h,w = img.shape;
     img_row = np.where(img>0);
     first_row = img_row[0][0];
@@ -94,7 +110,10 @@ def retarget_img(img):
     first_col = img_row[0][0];
     last_col = img_row[0][-1];
     new_img = img[first_row:last_row, first_col:last_col];
-    return new_img;
+    mask = mask[first_row:last_row, first_col:last_col];
+    #cv2.imshow('img', new_img.astype("uint8"));
+    #cv2.waitKey();
+    return new_img,mask;
 
 class ExposureDataset(Dataset):
     def __init__(self, imgs, lbls, transforms) -> None:
@@ -222,20 +241,38 @@ if __name__ == "__main__":
 
         file_name = os.path.basename(img_path);
         file_name = file_name[:file_name.rfind('.')];
-        total_imgs.append([os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'),
-        os.path.join(f'D:\\PhD\\Thesis\\Segmentation Results\\thorax', f'{file_name}_thorax.png')]);
+        #total_imgs.append([os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'),
+        #os.path.join(f'D:\\PhD\\Thesis\\Segmentation Results\\thorax', f'{file_name}_thorax.png')]);
         
-        # img = cv2.imread(os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'), cv2.IMREAD_GRAYSCALE);
-        # mask = cv2.threshold(img, thresh=40,maxval=255, type= cv2.THRESH_BINARY)[1];
-        # #cv2.imshow('m', mask);
-        # #cv2.waitKey();
-        # hist = cv2.calcHist([img], [0], mask, [256], [0,255]);
+        img = cv2.imread(os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'), cv2.IMREAD_GRAYSCALE);
+        mask = cv2.imread(os.path.join(f'D:\\PhD\\Thesis\\Segmentation Results\\thorax', f'{file_name}_thorax.png'), cv2.IMREAD_GRAYSCALE);
+        mask = cv2.resize(mask, (1024,1024));
+        img = cv2.resize(img, (1024,1024));
+        img,mask = apply_mask(img, mask);
+        img_flatten = img.flatten();
+        mask = mask.flatten();
+        mask = np.where(mask<1)[0];
+        img_flatten = np.delete(img_flatten, mask);
+        std = np.std(img_flatten);
+        snr = signaltonoise(img_flatten);
+        print(f'std: {std}\tsnr: {snr}\tlabel: {lbl}');
+        cv2.imshow(f'std: {std}\tsnr: {snr}\tlabel: {lbl}', img.astype("uint8"));
+        cv2.waitKey();
+        
+        #img = cv2.resize(img, (1024,1024));
+        #b = cv2.addWeighted(img, 0.5, mask.astype("uint8")*255, 0.5, 0.0);
+        #cv2.imshow('img', b);
+        #cv2.waitKey();
+        #mask = cv2.threshold(img, thresh=40,maxval=255, type= cv2.THRESH_BINARY)[1];
+        #cv2.imshow('m', mask);
+        #cv2.waitKey();
+        # hist = cv2.calcHist([img], [0], mask.astype("uint8"), [256], [0,255]);
         # hist = hist / hist.sum();
         # plt.plot(hist);
         # plt.savefig(f'res\\{file_name}_{lbl}.png');
         # plt.clf();
         # cv2.imwrite(f'res\\{file_name}.png', img);
-        # total_features.append(hist);
+        #total_features.append(hist);
 
     
     #print(lbl_dict);
