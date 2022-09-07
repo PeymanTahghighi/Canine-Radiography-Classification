@@ -137,7 +137,7 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
             #sternum
             sternum = segmentation_models[2](radiograph_image.unsqueeze(dim=0));
             sternum = torch.sigmoid(sternum)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
-            sternum = sternum > 0.5;
+            sternum = sternum > 0.7;
             sternum = np.uint8(sternum)*255;
             sternum = postprocess_sternum(sternum);
             #----------------------------------------------------
@@ -147,7 +147,7 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
             ribs_left, ribs_right = divide_image_symmetry_line(ribs, sym_line);
             thorax_left = segment_thorax(ribs_left);
             thorax_right = segment_thorax(ribs_right);
-            #whole_thorax = segment_thorax(ribs);
+            whole_thorax = segment_thorax(ribs);
             symmetry_features = extract_symmetry_features(thorax_left, thorax_right);
             symmetry_features = np.array(symmetry_features);
             

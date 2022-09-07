@@ -1,6 +1,7 @@
 
 from copy import deepcopy
 from re import S
+from statistics import mode
 from tabnanny import verbose
 import numpy as np
 import cv2
@@ -10,8 +11,8 @@ import os
 from sklearn.model_selection import StratifiedKFold
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
-from sklearn.metrics import precision_recall_fscore_support
-from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix, precision_recall_fscore_support
+from sklearn.preprocessing import RobustScaler, StandardScaler
 from sklearn.preprocessing import LabelEncoder
 import pickle
 from sklearn.model_selection import GridSearchCV
@@ -85,7 +86,23 @@ valid_transforms = A.Compose(
     ]
 )
 
-def retarget_img(img):
+def signaltonoise(a, axis=0, ddof=0):
+    a = np.asanyarray(a)
+    m = a.mean(axis)
+    sd = a.std(axis=axis, ddof=ddof)
+    return np.where(sd == 0, 0, m/sd)
+
+def apply_mask(img, mask):
+    # simplified_mask = np.zeros_like(mask);
+    # contours = cv2.findContours(mask, cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)[0];
+    # for c in contours:
+    #     x,y,w,h = cv2.boundingRect(c);
+    #     simplified_mask = cv2.rectangle(simplified_mask, (x,y), (x+w, y+h), (255,255,255),-1);
+
+    mask = np.where(mask>0, 1, 0);
+    img = img * mask;
+    
+
     h,w = img.shape;
     img_row = np.where(img>0);
     first_row = img_row[0][0];
@@ -96,7 +113,10 @@ def retarget_img(img):
     first_col = img_row[0][0];
     last_col = img_row[0][-1];
     new_img = img[first_row:last_row, first_col:last_col];
-    return new_img;
+    mask = mask[first_row:last_row, first_col:last_col];
+    #cv2.imshow('img', new_img.astype("uint8"));
+    #cv2.waitKey();
+    return new_img,mask;
 
 class ExposureDataset(Dataset):
     def __init__(self, imgs, lbls, transforms) -> None:
@@ -209,6 +229,7 @@ if __name__ == "__main__":
     lbl_dict = dict();
     total_lbl = [];
     total_imgs = [];
+    total_features = [];
     for img_path in labeled_imgs:
         meta = pickle.load(open(img_path,'rb'));
         lbl = meta['misc'][0];
@@ -223,114 +244,174 @@ if __name__ == "__main__":
         file_name = os.path.basename(img_path);
         file_name = file_name[:file_name.rfind('.')];
         total_imgs.append([os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'),
-        os.path.join(f'C:\\PhD\\Thesis\\Unsupervised Canine Radiography Classification\\Segmentation Results\\thorax', f'{file_name}_thorax.png')]);
+        os.path.join(f'D:\\PhD\\Thesis\\Segmentation Results\\thorax', f'{file_name}_thorax.png')]);
         
-        # img = cv2.imread(os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'), cv2.IMREAD_GRAYSCALE);
-        # mask = cv2.threshold(img, thresh=40,maxval=255, type= cv2.THRESH_BINARY)[1];
-        # #cv2.imshow('m', mask);
-        # #cv2.waitKey();
-        # hist = cv2.calcHist([img], [0], mask, [256], [0,255]);
-        # hist = hist / hist.sum();
-        # plt.plot(hist);
-        # plt.savefig(f'res\\{file_name}_{lbl}.png');
-        # plt.clf();
-        # cv2.imwrite(f'res\\{file_name}.png', img);
-        # total_features.append(hist);
+        img = cv2.imread(os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'), cv2.IMREAD_GRAYSCALE);
+        mask = cv2.imread(os.path.join(f'C:\\PhD\\Thesis\\Unsupervised Canine Radiography Classification\\Segmentation Results\\thorax', f'{file_name}_thorax.png'), cv2.IMREAD_GRAYSCALE);
+        mask = cv2.resize(mask, (1024,1024));
+        img = cv2.resize(img, (1024,1024));
+        img,mask = apply_mask(img, mask);
+        img_flatten = img.flatten();
+        mask_flatten = mask.flatten();
+        mask_flatten = np.where(mask_flatten<1)[0];
+        img_flatten = np.delete(img_flatten, mask_flatten);
+        std = np.std(img_flatten);
+        snr = signaltonoise(img_flatten);
+        #print(f'std: {std}\tsnr: {snr}\tlabel: {lbl}');
+        #cv2.imshow(f'std: {std}\tsnr: {snr}\tlabel: {lbl}', img.astype("uint8"));
+        #cv2.waitKey();
+        
+        #img = cv2.resize(img, (1024,1024));
+        #b = cv2.addWeighted(img, 0.5, mask.astype("uint8")*255, 0.5, 0.0);
+        #cv2.imshow('img', b);
+        #cv2.waitKey();
+        #mask = cv2.threshold(img, thresh=40,maxval=255, type= cv2.THRESH_BINARY)[1];
+        #cv2.imshow('m', mask);
+        #cv2.waitKey();
+        hist = cv2.calcHist([img.astype("uint8")], [0], mask.astype("uint8"), [256], [0,255]);
+        hist = hist / hist.sum();
+        plt.plot(hist);
+        plt.savefig(f'res\\{file_name}_{lbl}.png');
+        plt.clf();
+        cv2.imwrite(f'res\\{file_name}.png', img);
+        total_features.append([std, snr]);
 
     
     #print(lbl_dict);
     
 
     le = LabelEncoder();
-    total_lbl = le.fit_transform(total_lbl);
+    total_lbl = np.array(total_lbl);
+    total_lbl[total_lbl == 'Underexposed'] = 0;
+    total_lbl[total_lbl == 'Normal'] = 1;
+    total_lbl[total_lbl == 'Overexposed'] = 2;
     
     kfold = StratifiedKFold(n_splits=5);
 
     total_imgs = np.array(total_imgs);
-    total_lbl = np.array(total_lbl);
+    total_features = np.array(total_features);
+    total_prec = [];
+    total_rec = [];
+    total_f1 = [];
+    total_cm = [];
 
-    # param_args = {
-    #     'svc__C':[0.001,0.01,0.1,1,10,100],
-    #     'svc__kernel': ['rbf', 'linear']
-    # };
+    for train_id, valid_id in kfold.split(total_features, total_lbl):
+        train_x, train_y, test_x, test_y = total_features[train_id], total_lbl[train_id], total_features[valid_id], total_lbl[valid_id];
+        model = Pipeline([('scalar',RobustScaler()), ('svc',SVC(class_weight='balanced', C=1000, gamma=0.001, kernel = 'rbf'))]);
+        model = model.fit(train_x, train_y);
 
-    # pipe = Pipeline([('scalar',StandardScaler()), ('svc',SVC(class_weight='balanced'))]);
-    # gs = GridSearchCV(pipe, param_args, scoring='f1_macro', n_jobs=-1, cv = 5);
-    # gs = gs.fit(total_features.squeeze(), total_lbl);
-    # print(gs.best_score_);
+        all_predictions = [];
+        for i in range(len(test_x)):
+            lbl = model.predict(test_x[i].reshape(1,-1));
+            all_predictions.append(lbl[0]);
 
-    settings = [{''}];
+            if lbl[0] != test_y[i]:
+                print(f'currect lbl: {test_y[i]} prediciton: {lbl}\t{total_imgs[i]}');
+        
+        prec, rec, f1, _ = precision_recall_fscore_support(test_y, all_predictions,average='macro');
+        cm = confusion_matrix(test_y, all_predictions);
+        total_f1.append(f1);
+        total_prec.append(rec);
+        total_rec.append(prec);
+        total_cm.append(cm);
+    print(np.mean(total_f1));
+    total_cm = np.array(total_cm);
+    total_cm = np.sum(total_cm, axis = 0);
+    disp = ConfusionMatrixDisplay(total_cm, display_labels=['Underexposed', 'Normal', 'Overexposed']);
+    disp.plot();
+    plt.show();
+        
 
-    model = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_efficientnet_b4', pretrained=True);
-    model.classifier.fc =  nn.Linear(1792, 3, bias=True);
-    model = model.to(DEVICE);
-    init_weights = deepcopy(model.state_dict());
-    optimizer = optim.Adam(model.parameters(), 1e-4, weight_decay=1e-5);
-    sched = ExponentialLR(optimizer,0.99, verbose=True);
-    writer = SummaryWriter('exp');
 
-    precision_estimator = Precision(num_classes=3, multiclass=True, average='macro').to(DEVICE);
-    recall_estimator = Recall(num_classes=3, multiclass=True , average='macro').to(DEVICE);
-    accuracy_esimator = Accuracy(num_classes=3, multiclass=True, average='macro').to(DEVICE);
-    f1_esimator = F1Score(num_classes=3, multiclass=True, average='macro').to(DEVICE);
 
-    stopping_strategy = CombinedTrainValid(1.0,5);
+    param_range = [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0, 100.0, 1000.0];
 
-    fold_cnt = 0;
-    total_f1 = list();
+    param_grid = [
+        {'svc__C' : param_range,
+        'svc__kernel' : ['linear']},
+        {
+            'svc__C': param_range,
+            'svc__gamma' : param_range,
+            'svc__kernel' : ['rbf']
+        }
+    ];
 
-    for train_id, valid_id in kfold.split(total_imgs, total_lbl):
-        model.load_state_dict(init_weights);
-        print(f'Starting fold {fold_cnt}...')
-        train_X, train_y = total_imgs[train_id], total_lbl[train_id];    
-        valid_X, valid_y = total_imgs[valid_id], total_lbl[valid_id];
 
-        train_dataset = ExposureDataset(train_X, train_y, train_transforms);
-        valid_dataset = ExposureDataset(valid_X, valid_y, valid_transforms);
+    pipe = Pipeline([('scalar',RobustScaler()), ('svc',SVC(class_weight='balanced'))]);
+    gs = GridSearchCV(pipe, param_grid, scoring='f1_macro', n_jobs=-1, cv = 10);
+    gs = gs.fit(total_features.squeeze(), total_lbl);
+    print(gs.best_params_);
 
-        train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=2);
-        valid_loader = DataLoader(valid_dataset, batch_size=2, shuffle=True, num_workers=2);
+    # model = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_efficientnet_b4', pretrained=True);
+    # model.classifier.fc =  nn.Linear(1792, 3, bias=True);
+    # model = model.to(DEVICE);
+    # init_weights = deepcopy(model.state_dict());
+    # optimizer = optim.Adam(model.parameters(), 1e-4, weight_decay=1e-5);
+    # sched = ExponentialLR(optimizer,0.99, verbose=True);
+    # writer = SummaryWriter('exp');
 
-        e = 1;
-        best = 100;
-        best_prec = 0;
-        best_recall = 0;
-        best_f1 = 0;
-        best_acc = 0;
-        while(True):
-            model.train();
-            train_step(e, model, train_loader, optimizer);
-            model.eval();
-            train_loss, train_acc, train_precision, train_recall, train_f1 = valid_step(e, model, train_loader, [precision_estimator, recall_estimator, accuracy_esimator, f1_esimator]);
-            valid_loss, valid_acc, valid_precision, valid_recall, valid_f1 = valid_step(e, model, valid_loader, [precision_estimator, recall_estimator, accuracy_esimator, f1_esimator]);
+    # precision_estimator = Precision(num_classes=3, multiclass=True, average='macro').to(DEVICE);
+    # recall_estimator = Recall(num_classes=3, multiclass=True , average='macro').to(DEVICE);
+    # accuracy_esimator = Accuracy(num_classes=3, multiclass=True, average='macro').to(DEVICE);
+    # f1_esimator = F1Score(num_classes=3, multiclass=True, average='macro').to(DEVICE);
+
+    # stopping_strategy = CombinedTrainValid(1.0,5);
+
+    # fold_cnt = 0;
+    # total_f1 = list();
+
+    # for train_id, valid_id in kfold.split(total_imgs, total_lbl):
+    #     model.load_state_dict(init_weights);
+    #     print(f'Starting fold {fold_cnt}...')
+    #     train_X, train_y = total_imgs[train_id], total_lbl[train_id];    
+    #     valid_X, valid_y = total_imgs[valid_id], total_lbl[valid_id];
+
+    #     train_dataset = ExposureDataset(train_X, train_y, train_transforms);
+    #     valid_dataset = ExposureDataset(valid_X, valid_y, valid_transforms);
+
+    #     train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=2);
+    #     valid_loader = DataLoader(valid_dataset, batch_size=2, shuffle=True, num_workers=2);
+
+    #     e = 1;
+    #     best = 100;
+    #     best_prec = 0;
+    #     best_recall = 0;
+    #     best_f1 = 0;
+    #     best_acc = 0;
+    #     while(True):
+    #         model.train();
+    #         train_step(e, model, train_loader, optimizer);
+    #         model.eval();
+    #         train_loss, train_acc, train_precision, train_recall, train_f1 = valid_step(e, model, train_loader, [precision_estimator, recall_estimator, accuracy_esimator, f1_esimator]);
+    #         valid_loss, valid_acc, valid_precision, valid_recall, valid_f1 = valid_step(e, model, valid_loader, [precision_estimator, recall_estimator, accuracy_esimator, f1_esimator]);
     
-            print(f"Epoch {e}\tLoss: {train_loss}\tPrecision: {train_precision}\tRecall: {train_recall}\tAccuracy: {train_acc}\tF1: {train_f1}");
-            print(f"Valid \tLoss: {valid_loss}\tPrecision: {valid_precision}\tRecall: {valid_recall}\tAccuracy: {valid_acc}\tF1: {valid_f1}");
+    #         print(f"Epoch {e}\tLoss: {train_loss}\tPrecision: {train_precision}\tRecall: {train_recall}\tAccuracy: {train_acc}\tF1: {train_f1}");
+    #         print(f"Valid \tLoss: {valid_loss}\tPrecision: {valid_precision}\tRecall: {valid_recall}\tAccuracy: {valid_acc}\tF1: {valid_f1}");
 
-            writer.add_scalar(f'Loss{fold_cnt}/train', train_loss, e);
-            writer.add_scalar(f'Loss{fold_cnt}/valid', valid_loss, e);
+    #         writer.add_scalar(f'Loss{fold_cnt}/train', train_loss, e);
+    #         writer.add_scalar(f'Loss{fold_cnt}/valid', valid_loss, e);
 
-            if(valid_loss < best):
-                print("New best model found!");
-                best = valid_loss;
-                best_model = deepcopy(model.state_dict());
-                best_prec = valid_precision;
-                best_recall = valid_recall;
-                best_f1 = valid_f1;
-                best_acc = valid_acc;
+    #         if(valid_loss < best):
+    #             print("New best model found!");
+    #             best = valid_loss;
+    #             best_model = deepcopy(model.state_dict());
+    #             best_prec = valid_precision;
+    #             best_recall = valid_recall;
+    #             best_f1 = valid_f1;
+    #             best_acc = valid_acc;
 
-            if stopping_strategy(valid_loss, train_loss) is False:
-                break;
-            sched.step(e);
+    #         if stopping_strategy(valid_loss, train_loss) is False:
+    #             break;
+    #         sched.step(e);
 
-            e += 1;
+    #         e += 1;
 
-        fold_cnt += 1;
-        f = open(f'res_{fold_cnt}.txt', 'w');
-        f.write(f"Valid \tPrecision: {best_prec}\tRecall: {best_recall}\tAccuracy: {best_acc}\tF1: {best_f1}");
-        total_f1.append(best_f1);
-        f.close();
-        pickle.dump(best_model, open(f'{fold_cnt}.dmp', 'wb'));
+    #     fold_cnt += 1;
+    #     f = open(f'res_{fold_cnt}.txt', 'w');
+    #     f.write(f"Valid \tPrecision: {best_prec}\tRecall: {best_recall}\tAccuracy: {best_acc}\tF1: {best_f1}");
+    #     total_f1.append(best_f1);
+    #     f.close();
+    #     pickle.dump(best_model, open(f'{fold_cnt}.dmp', 'wb'));
     
-    print(f'avg: {np.mean(total_f1)}');
+    # print(f'avg: {np.mean(total_f1)}');
     

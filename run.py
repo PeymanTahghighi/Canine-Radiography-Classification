@@ -160,7 +160,7 @@ if __name__ == "__main__":
     #update_folds(root_dataframe);
     #(1-2)
     folds = load_folds();
-    optimize_sternum_model(folds)
+    #optimize_sternum_model(folds)
     #optimize_cranial_model(folds);
     #optimize_full_model(folds);
 
