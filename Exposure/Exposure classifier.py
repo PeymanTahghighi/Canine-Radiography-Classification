@@ -33,7 +33,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.tensorboard import SummaryWriter
 
 
-
+IMAGE_SIZE = 1536;
 DEVICE = 'cuda' if torch.cuda.is_available() else ' cpu';
 
 def focal_loss(logits,
@@ -67,8 +67,10 @@ def focal_loss(logits,
 
 train_transforms = A.Compose(
 [
-    A.Resize(512,512),
+    A.Resize(IMAGE_SIZE,IMAGE_SIZE),
     A.HorizontalFlip(p=0.5),
+    # A.PadIfNeeded(min_height=512, min_width=512),
+    # A.CenterCrop(p=0.5, height = 512, width = 512),
     A.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225]),
     ToTensorV2(),
 ],
@@ -77,7 +79,7 @@ additional_targets={'mask': 'mask'}
 
 valid_transforms = A.Compose(
     [
-    A.Resize(512,512),
+    A.Resize(IMAGE_SIZE,IMAGE_SIZE),
     A.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225]),
     ToTensorV2()
     ]
@@ -108,8 +110,9 @@ class ExposureDataset(Dataset):
     
     def __getitem__(self, index):
         img = cv2.imread(self.__imgs[index][0], cv2.IMREAD_GRAYSCALE);
-        img = cv2.resize(img, (512,512));
+        img = cv2.resize(img, (IMAGE_SIZE,IMAGE_SIZE));
         thorax = cv2.imread(self.__imgs[index][1], cv2.IMREAD_GRAYSCALE);
+        thorax = cv2.resize(thorax, (IMAGE_SIZE,IMAGE_SIZE));
         thorax = np.where(thorax > 0, 1, 0);
         img = (img*thorax).astype("uint8");
         img = retarget_img(img);
@@ -144,9 +147,6 @@ def train_step(epoch, model, loader, optimizer):
             total_loss.append(np.mean(accumulated_loss));
             model.zero_grad(set_to_none = True);
             accumulated_loss = [];
-
-        if i == l-1:
-            print(i);
 
 
         pbar.set_description(('%10s' + '%10.4g')%(epoch, np.mean(total_loss)));
@@ -223,7 +223,7 @@ if __name__ == "__main__":
         file_name = os.path.basename(img_path);
         file_name = file_name[:file_name.rfind('.')];
         total_imgs.append([os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'),
-        os.path.join(f'D:\\PhD\\Thesis\\Segmentation Results\\thorax', f'{file_name}_thorax.png')]);
+        os.path.join(f'C:\\PhD\\Thesis\\Unsupervised Canine Radiography Classification\\Segmentation Results\\thorax', f'{file_name}_thorax.png')]);
         
         # img = cv2.imread(os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'), cv2.IMREAD_GRAYSCALE);
         # mask = cv2.threshold(img, thresh=40,maxval=255, type= cv2.THRESH_BINARY)[1];
@@ -265,7 +265,7 @@ if __name__ == "__main__":
     model.classifier.fc =  nn.Linear(1792, 3, bias=True);
     model = model.to(DEVICE);
     init_weights = deepcopy(model.state_dict());
-    optimizer = optim.RMSprop(model.parameters(), 5e-6, momentum=0.9, weight_decay=1e-5);
+    optimizer = optim.Adam(model.parameters(), 1e-4, weight_decay=1e-5);
     sched = ExponentialLR(optimizer,0.99, verbose=True);
     writer = SummaryWriter('exp');
 
@@ -274,7 +274,7 @@ if __name__ == "__main__":
     accuracy_esimator = Accuracy(num_classes=3, multiclass=True, average='macro').to(DEVICE);
     f1_esimator = F1Score(num_classes=3, multiclass=True, average='macro').to(DEVICE);
 
-    stopping_strategy = CombinedTrainValid(1.0,2);
+    stopping_strategy = CombinedTrainValid(1.0,5);
 
     fold_cnt = 0;
     total_f1 = list();
@@ -288,8 +288,8 @@ if __name__ == "__main__":
         train_dataset = ExposureDataset(train_X, train_y, train_transforms);
         valid_dataset = ExposureDataset(valid_X, valid_y, valid_transforms);
 
-        train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=1);
-        valid_loader = DataLoader(valid_dataset, batch_size=2, shuffle=True, num_workers=1);
+        train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=2);
+        valid_loader = DataLoader(valid_dataset, batch_size=2, shuffle=True, num_workers=2);
 
         e = 1;
         best = 100;

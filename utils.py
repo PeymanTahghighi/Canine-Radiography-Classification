@@ -54,6 +54,8 @@ def get_perimeter(img):
 
     #assert len(contours) == 1, "Number of contours detected should be exactly one";
     #hull_list = [];
+    perimeter = 0;
+    perimeter_crop = 0;
     for c in contours_crop:
         if cv2.contourArea(c) > 10:
             ch = cv2.convexHull(c);
