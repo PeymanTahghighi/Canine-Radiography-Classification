@@ -9,7 +9,7 @@ from glob import glob
 import cv2
 import numpy as np
 from utility import extract_sternum_features, scale_width, smooth_boundaries
-from optimize_models import optimize_caudal_model, optimize_cranial_model, optimize_full_model, optimize_sternum_model
+#from optimize_models import optimize_caudal_model, optimize_cranial_model, optimize_full_model, optimize_sternum_model
 from utility import divide_image_symmetry_line, get_symmetry_line
 import config
 from deep_learning.network import Unet
@@ -35,7 +35,10 @@ def update_folds(root_dataframe, num_folds = 5):
     lbl_list = [];
     mask_list = [];
     grain_lbl_list = [];
-    features_list = [];
+    sternum_features_list = [];
+    cranial_features_list = [];
+    caudal_features_list = [];
+    symmetry_features_list = [];
 
     create_folder(f'results\\train_data\\');
     create_folder('cache');
@@ -110,13 +113,18 @@ def update_folds(root_dataframe, num_folds = 5):
                 symmetry_features = extract_symmetry_features(thorax_left, thorax_right);
                 #------------------------------------------------------
 
-                features_list.append([cranial_features, caudal_features, symmetry_features, sternum_features]);
+                sternum_features_list.append(sternum_features);
+                symmetry_features_list.append(symmetry_features);
+                cranial_features_list.append(cranial_features);
+                caudal_features_list.append(caudal_features);
 
 
                 mask_list.append(curr_masks);
 
                 #store thorax
                 cv2.imwrite(f'results\\train_data\\{file_name}.png', whole_thorax);
+                cv2.imwrite(f'results\\train_data\\{file_name}_left.png', thorax_left);
+                cv2.imwrite(f'results\\train_data\\{file_name}_right.png', thorax_right);
                 
 
     le = LabelEncoder();
@@ -125,7 +133,10 @@ def update_folds(root_dataframe, num_folds = 5):
     mask_list = np.array(mask_list);
     lbl_list = np.array(lbl_list);
     grain_lbl_list = np.array(grain_lbl_list);
-    features_list = np.array(features_list);
+    sternum_features_list = np.array(sternum_features_list);
+    symmetry_features_list = np.array(symmetry_features_list);
+    cranial_features_list = np.array(cranial_features_list);
+    caudal_features_list = np.array(caudal_features_list);
 
     skfold = StratifiedKFold(num_folds, shuffle=True, random_state=42);
     fold_cnt = 0;
@@ -134,7 +145,10 @@ def update_folds(root_dataframe, num_folds = 5):
         mask_list[train_idx], 
         lbl_list[train_idx],
         grain_lbl_list[train_idx], 
-        features_list[train_idx], 
+        cranial_features_list[train_idx], 
+        caudal_features_list[train_idx], 
+        symmetry_features_list[train_idx], 
+        sternum_features_list[train_idx], 
         img_list[test_idx], 
         mask_list[test_idx],
         lbl_list[test_idx], 
@@ -157,7 +171,7 @@ if __name__ == "__main__":
     root_dataframe = pd.read_excel('C:\\Users\\Admin\\OneDrive - University of Guelph\\Miscellaneous\\dvvd_list_final.xlsx');
 
     #(1-1)
-    #update_folds(root_dataframe);
+    update_folds(root_dataframe);
     #(1-2)
     folds = load_folds();
     #optimize_sternum_model(folds)
