@@ -19,7 +19,7 @@ from utils import create_folder, extract_cranial_features, extract_symmetry_feat
 from tqdm import tqdm
 
 #---------------------------------------------------------
-def update_folds(root_dataframe, num_folds = 5):
+def update_folds(root_dataframe, ):
 
     #find intersection with spine and ribs since it hasn't been labelled yet
     spine_and_ribs = pickle.load(open('C:\\Users\\Admin\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\SpineandRibs.uog','rb'));
@@ -52,7 +52,7 @@ def update_folds(root_dataframe, num_folds = 5):
             file_name = s[:s.rfind('.')];
             meta_file = pickle.load(open(f'C:\\Users\\Admin\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels\\{file_name}.meta', 'rb'));
             
-            if 'Ribs' in meta_file.keys() and 'Spine' in meta_file.keys() and file_name in img_list_t:
+            if False:
                 curr_masks  = [];
                 
                 idx = img_list_all.index(file_name);
@@ -208,7 +208,7 @@ def update_folds(root_dataframe, num_folds = 5):
                 # cv2.imwrite(f'results\\train_data\\{file_name}_right.png', thorax_right);
                 
 
-    le = LabelEncoder();
+    
     img_list = np.array(img_list);
     mask_list = np.array(mask_list);
     lbl_list = np.array(lbl_list);
@@ -225,6 +225,7 @@ def update_folds(root_dataframe, num_folds = 5):
     pickle.dump(sternum_features_list,open(f'cache\\sternum_features_list.dmp', 'wb'));
     pickle.dump(cranial_features_list,open(f'cache\\cranial_features_list.dmp', 'wb'));
     pickle.dump(caudal_features_list,open(f'cache\\caudal_features_list.dmp', 'wb'));
+    pickle.dump(symmetry_features_list,open(f'cache\\symmetry_features_list.dmp', 'wb'));
 
     # lbl_list =  le.fit_transform(lbl_list);
     # skfold = StratifiedKFold(num_folds, shuffle=True, random_state=42);
@@ -246,6 +247,46 @@ def update_folds(root_dataframe, num_folds = 5):
     #     fold_cnt += 1;
 #---------------------------------------------------------
 
+def store_folds(num_folds = 5):
+    img_list = [];
+    lbl_list = [];
+    mask_list = [];
+    grain_lbl_list = [];
+    sternum_features_list = [];
+    cranial_features_list = [];
+    caudal_features_list = [];
+    symmetry_features_list = [];
+
+    img_list = pickle.load(open(f'cache\\img_list.dmp', 'rb'));
+    mask_list = pickle.load(open(f'cache\\mask_list.dmp', 'rb'));
+    lbl_list = pickle.load(open(f'cache\\lbl_list.dmp', 'rb'));
+    grain_lbl_list = pickle.load(open(f'cache\\grain_lbl_list.dmp', 'rb'));
+    sternum_features_list = pickle.load(open(f'cache\\sternum_features_list.dmp', 'rb'));
+    cranial_features_list = pickle.load(open(f'cache\\cranial_features_list.dmp', 'rb'));
+    caudal_features_list = pickle.load(open(f'cache\\caudal_features_list.dmp', 'rb'));
+    symmetry_features_list = pickle.load(open(f'cache\\symmetry_features_list.dmp', 'rb'));
+
+
+    le = LabelEncoder();
+    lbl_list =  le.fit_transform(lbl_list);
+    skfold = StratifiedKFold(num_folds, shuffle=True, random_state=42);
+    fold_cnt = 0;
+    for train_idx, test_idx in skfold.split(img_list, lbl_list):
+        pickle.dump([img_list[train_idx], 
+        mask_list[train_idx], 
+        lbl_list[train_idx],
+        grain_lbl_list[train_idx], 
+        cranial_features_list[train_idx], 
+        caudal_features_list[train_idx], 
+        symmetry_features_list[train_idx], 
+        sternum_features_list[train_idx], 
+        img_list[test_idx], 
+        mask_list[test_idx],
+        lbl_list[test_idx], 
+        grain_lbl_list[test_idx]], 
+        open(f'cache\\{fold_cnt}.fold', 'wb'));
+        fold_cnt += 1;
+
 #---------------------------------------------------------
 def load_folds():
     fold_lst = glob('cache\\*.fold');
@@ -260,7 +301,8 @@ if __name__ == "__main__":
     root_dataframe = pd.read_excel('C:\\Users\\Admin\\OneDrive - University of Guelph\\Miscellaneous\\dvvd_list_final.xlsx');
 
     #(1-1)
-    update_folds(root_dataframe);
+    #update_folds(root_dataframe);
+    store_folds();
     #(1-2)
     folds = load_folds();
     #optimize_sternum_model(folds)
@@ -280,7 +322,10 @@ if __name__ == "__main__":
 
     #(2)
     for idx in range(0,len(folds)):
-        train_imgs,train_mask,train_lbl, train_grain_lbl, train_features, test_imgs, test_mask, test_lbl, test_grain_lbl = folds[idx][0], folds[idx][1], folds[idx][2], folds[idx][3], folds[idx][4], folds[idx][5], folds[idx][6], folds[idx][7], folds[idx][8];
+        train_imgs,train_mask,train_lbl, train_grain_lbl, cranial_features, \
+        caudal_features, \
+        symmetry_features, \
+        sternum_features, test_imgs, test_mask, test_lbl, test_grain_lbl = folds[idx][0], folds[idx][1], folds[idx][2], folds[idx][3], folds[idx][4], folds[idx][5], folds[idx][6], folds[idx][7], folds[idx][8], folds[idx][9], folds[idx][10], folds[idx][11];
         
         #temp: changing labels for symmetry
         sym_lbl = np.int32(train_grain_lbl[:,2]);
@@ -313,37 +358,37 @@ if __name__ == "__main__":
         
         #(2-1)
         print('------------- Training spine and ribs model ---------------\n');
-        cranial_classification_model = train_cranial_model(idx, train_features[:,0], train_grain_lbl[:,0]);
-        caudal_classification_model = train_caudal_model(idx, train_features[:,1], train_grain_lbl[:,1]);
-        symmetry_classification_model = train_symmetry_model(idx, train_features[:,2], train_grain_lbl[:,2]);
-        sternum_classification_model = train_sternum_model(idx, train_features[:,3], train_grain_lbl[:,3]);
+        # cranial_classification_model = train_cranial_model(idx, train_features[:,0], train_grain_lbl[:,0]);
+        # caudal_classification_model = train_caudal_model(idx, train_features[:,1], train_grain_lbl[:,1]);
+        # symmetry_classification_model = train_symmetry_model(idx, train_features[:,2], train_grain_lbl[:,2]);
+        # sternum_classification_model = train_sternum_model(idx, train_features[:,3], train_grain_lbl[:,3]);
         spine_and_ribs_segmentation_model = newtwork_trainer.train('spine and ribs', 3, spine_and_ribs_segmentation_model, idx, train_imgs, train_mask[:,0], 
-        test_imgs, test_mask[:,0], load_trained_model=True);
+        test_imgs, test_mask[:,0], load_trained_model=False);
         
         #(2-2)
         print('------------- Training Diaphragm ---------------\n');
         diaphragm_segmentation_model = newtwork_trainer.train('Diaphragm', 1, diaphragm_segmentation_model, idx,
-        train_imgs, train_mask[:,1], test_imgs, test_mask[:,1], load_trained_model=True);
+        train_imgs, train_mask[:,1], test_imgs, test_mask[:,1], load_trained_model=False);
 
         #(2-3)
         print('------------- Training Sternum ---------------\n');
         sternum_segmentation_model = newtwork_trainer.train('Sternum', 1, sternum_segmentation_model, 
-        idx,  train_imgs, train_mask[:,2], test_imgs, test_mask[:,2], load_trained_model=True);
+        idx,  train_imgs, train_mask[:,2], test_imgs, test_mask[:,2], load_trained_model=False);
 
-        cranial_results, caudal_results, symmetry_results, sternum_results, quality_results = evaluate_test_data(idx, 
-        [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, sternum_segmentation_model], 
-        [cranial_classification_model, caudal_classification_model, symmetry_classification_model, sternum_classification_model, full_classification_model],
-        test_imgs,
-        test_grain_lbl,
-        test_lbl,
-        c_transform,
-        use_saved_features=True);
+        # cranial_results, caudal_results, symmetry_results, sternum_results, quality_results = evaluate_test_data(idx, 
+        # [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, sternum_segmentation_model], 
+        # [cranial_classification_model, caudal_classification_model, symmetry_classification_model, sternum_classification_model, full_classification_model],
+        # test_imgs,
+        # test_grain_lbl,
+        # test_lbl,
+        # c_transform,
+        # use_saved_features=True);
 
-        total_cranial.append(cranial_results);
-        total_caudal.append(caudal_results);
-        total_symmetry.append(symmetry_results);
-        total_quality.append(quality_results);
-        total_sternum.append(sternum_results);
+        # total_cranial.append(cranial_results);
+        # total_caudal.append(caudal_results);
+        # total_symmetry.append(symmetry_results);
+        # total_quality.append(quality_results);
+        # total_sternum.append(sternum_results);
 
     total_cranial = np.mean(total_cranial, axis = 0);
     total_caudal = np.mean(total_caudal, axis = 0);
