@@ -358,31 +358,31 @@ if __name__ == "__main__":
         
         #(2-1)
         print('------------- Training spine and ribs model ---------------\n');
-        # cranial_classification_model = train_cranial_model(idx, train_features[:,0], train_grain_lbl[:,0]);
-        # caudal_classification_model = train_caudal_model(idx, train_features[:,1], train_grain_lbl[:,1]);
-        # symmetry_classification_model = train_symmetry_model(idx, train_features[:,2], train_grain_lbl[:,2]);
-        # sternum_classification_model = train_sternum_model(idx, train_features[:,3], train_grain_lbl[:,3]);
+        cranial_classification_model = train_cranial_model(idx, cranial_features, train_grain_lbl[:,0]);
+        caudal_classification_model = train_caudal_model(idx, caudal_features, train_grain_lbl[:,1]);
+        symmetry_classification_model = train_symmetry_model(idx, symmetry_features, train_grain_lbl[:,2]);
+        sternum_classification_model = train_sternum_model(idx, sternum_features, train_grain_lbl[:,3]);
         spine_and_ribs_segmentation_model = newtwork_trainer.train('spine and ribs', 3, spine_and_ribs_segmentation_model, idx, train_imgs, train_mask[:,0], 
-        test_imgs, test_mask[:,0], load_trained_model=False);
+        test_imgs, test_mask[:,0], load_trained_model=True);
         
         #(2-2)
         print('------------- Training Diaphragm ---------------\n');
         diaphragm_segmentation_model = newtwork_trainer.train('Diaphragm', 1, diaphragm_segmentation_model, idx,
-        train_imgs, train_mask[:,1], test_imgs, test_mask[:,1], load_trained_model=False);
+        train_imgs, train_mask[:,1], test_imgs, test_mask[:,1], load_trained_model=True);
 
         #(2-3)
         print('------------- Training Sternum ---------------\n');
         sternum_segmentation_model = newtwork_trainer.train('Sternum', 1, sternum_segmentation_model, 
-        idx,  train_imgs, train_mask[:,2], test_imgs, test_mask[:,2], load_trained_model=False);
+        idx,  train_imgs, train_mask[:,2], test_imgs, test_mask[:,2], load_trained_model=True);
 
-        # cranial_results, caudal_results, symmetry_results, sternum_results, quality_results = evaluate_test_data(idx, 
-        # [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, sternum_segmentation_model], 
-        # [cranial_classification_model, caudal_classification_model, symmetry_classification_model, sternum_classification_model, full_classification_model],
-        # test_imgs,
-        # test_grain_lbl,
-        # test_lbl,
-        # c_transform,
-        # use_saved_features=True);
+        evaluate_test_data(idx, 
+        [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, sternum_segmentation_model], 
+        [cranial_classification_model, caudal_classification_model, symmetry_classification_model, sternum_classification_model, full_classification_model],
+        test_imgs,
+        test_grain_lbl,
+        test_lbl,
+        c_transform,
+        use_saved_features=False);
 
         # total_cranial.append(cranial_results);
         # total_caudal.append(caudal_results);

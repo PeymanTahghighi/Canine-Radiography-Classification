@@ -1,5 +1,6 @@
 
 from copy import deepcopy
+import math
 from re import S
 from statistics import mode
 from tabnanny import verbose
@@ -35,6 +36,74 @@ from torch.utils.tensorboard import SummaryWriter
 from pytorch_grad_cam import EigenGradCAM, FullGrad, EigenCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from PIL import Image
+from scipy.signal import convolve2d
+
+def smooth_boundaries(spine, dist):
+    spine_thresh = np.where(spine[0,:]>0);
+    h,w = spine.shape;
+    left_bound = [];
+    right_bound = [];
+    start = -1;
+    for i in range(h):
+        if np.sum(spine[i,:]) > 0:
+            if start == -1:
+                start = i;
+            spine_thresh = np.where(spine[i,:]>0);
+            left_bound.append(spine_thresh[0][0]);
+            right_bound.append(spine_thresh[0][-1]);
+
+    local_minimas = [];
+    local_maximas = [];
+    for i in range(dist, len(left_bound)-dist):
+        temp_arr = left_bound[i-dist:i+dist];
+        m = np.min(temp_arr);
+        if m == left_bound[i]:
+            local_minimas.append([m,i+start]);
+    
+    for i in range(dist, len(right_bound)-dist):
+        temp_arr = right_bound[i-dist:i+dist];
+        m = np.max(temp_arr);
+        if m == right_bound[i]:
+            local_maximas.append([m,i+start]);
+    
+    ret = np.zeros_like(spine);
+    for l in range(len(local_minimas)-1):
+        spine = cv2.line(spine, (int(local_minimas[l][0]), int(local_minimas[l][1])), (int(local_minimas[l+1][0]), int(local_minimas[l+1][1])),(255,255,255),1);
+    for l in range(len(local_maximas)-1):
+        spine = cv2.line(spine, (int(local_maximas[l][0]), int(local_maximas[l][1])), (int(local_maximas[l+1][0]), int(local_maximas[l+1][1])),(255,255,255),1);
+    
+    spine = np.where(spine > 0, 1, 0);
+    out = np.zeros_like(spine);
+    for i in range(h):
+        if np.sum(spine[i,:]) > 0:
+            r = spine[i,:];
+            r = np.where(r == 1);
+            s = r[0][0];
+            e = r[0][-1];
+            if s != e:
+                w = int((e - s) / 4);
+                out[i, s:e] = 255;
+            else:
+                out[i,s] = 255;
+    return out;
+
+def scale_width(spine, multiplier):
+    spine = np.where(spine > 0, 1, 0);
+    h,w = spine.shape;
+    out = np.zeros_like(spine);
+    for i in range(h):
+        if np.sum(spine[i,:]) > 0:
+            r = spine[i,:];
+            r = np.where(r == 1);
+            s = r[0][0];
+            e = r[0][-1];
+            if s != e:
+                w = int((e - s) / multiplier);
+                out[i, s-w:e+w] = 255;
+            else:
+                out[i,s] = 255;
+    return out;
+
 
 IMAGE_SIZE = 512;
 DEVICE = 'cuda' if torch.cuda.is_available() else ' cpu';
@@ -238,8 +307,21 @@ def get_contrast(img):
 def get_std(img):
     return img.std();
 
+def estimate_noise(I):
+
+  H, W = I.shape
+
+  M = [[1, -2, 1],
+       [-2, 4, -2],
+       [1, -2, 1]]
+
+  sigma = np.sum(np.sum(np.absolute(convolve2d(I, M))))
+  sigma = sigma * math.sqrt(0.5 * math.pi) / (6 * (W-2) * (H-2))
+
+  return sigma
+
 if __name__ == "__main__":
-    
+
     labeled_imgs = glob('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\Exposure\\*.meta');
 
     lbl_dict = dict();
@@ -263,10 +345,29 @@ if __name__ == "__main__":
         os.path.join(f'D:\\PhD\\Thesis\\Segmentation Results\\thorax', f'{file_name}_thorax.png')]);
         
         img = cv2.imread(os.path.join('C:\\Users\Admin\\OneDrive - University of Guelph\\Miscellaneous\\DVVD-Final', f'{file_name}.jpeg'), cv2.IMREAD_GRAYSCALE);
-        mask = cv2.imread(os.path.join(f'D:\\PhD\Thesis\\Segmentation Results\\thorax', f'{file_name}_thorax.png'), cv2.IMREAD_GRAYSCALE);
+        kernel = np.ones((3,3),dtype=np.float32);
+        kernel = kernel/9;
+        
+        #kernel = kernel / 25;
+        
+        mask_meta = pickle.load(open(os.path.join(f'C:\\Users\\Admin\\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels', f'{file_name}.meta'), 'rb'));
+        p = mask_meta['Spine'][2];
+        mask = cv2.imread(os.path.join('C:\\Users\\Admin\\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels', f'{p}'), cv2.IMREAD_GRAYSCALE);
+        mask = np.where(mask >0, 255, 0).astype('uint8');
+        mask_thorax = cv2.imread(os.path.join('D:\\PhD\\Thesis\\Unsupervised-Canine-Radiography-Classification\\results\\train_data', f'{file_name}.png'), cv2.IMREAD_GRAYSCALE);
+        mask_thorax = cv2.resize(mask_thorax, (img.shape[1], img.shape[0]));
+        mask_thorax = np.where(mask_thorax > 0, 1, 0);
+        mask = smooth_boundaries(mask,10);
+        mask = smooth_boundaries(mask,25);
+
+        
+        #mask = smooth_boundaries(mask,50);
+       # mask = scale_width(mask, 2);
+
         # heart_mask = cv2.imread(os.path.join(f'C:\\Users\\Admin\\OneDrive - University of Guelph\\Miscellaneous\\heart\\labels', f'{file_name}_0.png'), cv2.IMREAD_GRAYSCALE);
-        mask = cv2.resize(mask, (1024,1024));
-        img = cv2.resize(img, (1024,1024));
+        # cv2.imshow('orig', img);
+        # cv2.imshow('unsharp', res);
+        # cv2.waitKey();
         # heart_mask = cv2.resize(heart_mask, (img.shape[1],img.shape[0]));
         # heart_mask = np.where(heart_mask >0, 1, 0);
         # heart = img*heart_mask;
@@ -282,7 +383,35 @@ if __name__ == "__main__":
         #b = cv2.addWeighted(img.astype("uint8"), 0.5, heart_mask.astype("uint8")*255, 0.5, 0.0);
         #cv2.imshow('b', b);
         #cv2.waitKey();
-        img,mask = apply_mask(img, mask);
+        img = img*mask_thorax;
+        img = np.uint8(img);
+
+        img_filt = cv2.filter2D(img, -1, kernel);
+        diff = cv2.subtract(img_filt, img);
+        #cv2.imshow('orig', img);
+        #cv2.imshow('filt', img_filt);
+        s = np.sum(diff);
+        #print(s);
+        #cv2.imshow('diff', diff);
+        #cv2.waitKey();
+        #cv2.imshow('img', img);
+        #cv2.waitKey();
+        noise_variance = estimate_noise(img);
+        mask = np.where(mask>0, 1, 0);
+        img = img * mask;
+
+        #img = cv2.equalizeHist(img.astype("uint8"));
+
+        # res = deepcopy(img);
+        # for k in range(1):
+        #     gauss = cv2.GaussianBlur(res, (3,3), 1);
+        #     res = cv2.addWeighted(res, 1.5,gauss, -0.5, 0 );
+        
+        # img = res;
+        #img,mask = apply_mask(img, mask);
+
+        #cv2.imshow('img', img.astype("uint8"));
+        #cv2.waitKey();
         # img_flatten = img.flatten();
         # mask_flatten = mask.flatten();
         # mask_flatten = np.where(mask_flatten<1)[0];
@@ -293,34 +422,46 @@ if __name__ == "__main__":
         # #cv2.imshow(f'std: {std}\tsnr: {snr}\tlabel: {lbl}', img.astype("uint8"));
         # #cv2.waitKey();
         
+        #img = cv2.resize(img.astype("uint8"), (1024,1024));
+        #mask = cv2.resize(mask.astype("uint8"), (1024,1024));
+        mask_hist = np.where(img > 0, 1, 0);
+        img_flatten = img.flatten();
+        img_flatten = np.delete(img_flatten, mask_hist);
+        std = np.std(img_flatten);
+        snr = signaltonoise(img_flatten);
+        print(f'{s}\t lbl: {lbl}\t{file_name}');
         img = cv2.resize(img.astype("uint8"), (1024,1024));
-        mask = cv2.resize(mask.astype("uint8"), (1024,1024));
+        #cv2.imshow('img', img.astype("uint8"));
+        #cv2.waitKey();
         # b = cv2.addWeighted(img, 0.5, mask.astype("uint8")*255, 0.5, 0.0);
         # cv2.imshow('img', b);
         # cv2.waitKey();
         # #mask = cv2.threshold(img, thresh=40,maxval=255, type= cv2.THRESH_BINARY)[1];
         # #cv2.imshow('m', mask);
         # #cv2.waitKey();
-        hist = cv2.calcHist([img.astype("uint8")], [0], mask.astype("uint8"), [256], [0,255]);
-        hist = hist / hist.sum();
+        # hist = cv2.calcHist([img.astype("uint8")], [0], mask_hist.astype("uint8"), [256], [0,255]);
+        # hist = hist / hist.sum();
         # plt.plot(hist);
         # plt.savefig(f'res\\{file_name}_{lbl}.png');
         # plt.clf();
         # cv2.imwrite(f'res\\{file_name}.png', img);
-        total_features.append(hist);
+        # cv2.imwrite(f'res\\{file_name}_sharp.png', res);
+        total_features.append([std,snr]);
 
     
     #print(lbl_dict);
     
+    #pickle.dump([total_lbl, total_features], open('d.dmp', 'wb'));
+    total_lbl, total_features = pickle.load(open('d.dmp', 'rb'));
 
     le = LabelEncoder();
-    total_lbl = le.fit_transform(total_lbl);
+    #total_lbl = le.fit_transform(total_lbl);
     total_lbl = np.array(total_lbl);
-    # total_lbl[total_lbl == 'Underexposed'] = 0;
-    # total_lbl[total_lbl == 'Normal'] = 0;
-    # total_lbl[total_lbl == 'Overexposed'] = 1;
-    # total_features = np.array(total_features)
-    # total_lbl = np.array(total_lbl, np.int32)
+    total_lbl[total_lbl == 'Underexposed'] = 1;
+    total_lbl[total_lbl == 'Normal'] = 0;
+    total_lbl[total_lbl == 'Overexposed'] = 0;
+    total_features = np.array(total_features)
+    total_lbl = np.array(total_lbl, np.int32)
     
     kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42);
 
@@ -360,23 +501,23 @@ if __name__ == "__main__":
 
 
 
-    # param_range = [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0, 100.0, 1000.0];
+    param_range = [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0, 100.0, 1000.0];
 
-    # param_grid = [
-    #     {'svc__C' : param_range,
-    #     'svc__kernel' : ['linear']},
-    #     {
-    #         'svc__C': param_range,
-    #         'svc__gamma' : param_range,
-    #         'svc__kernel' : ['rbf']
-    #     }
-    # ];
+    param_grid = [
+        {'svc__C' : param_range,
+        'svc__kernel' : ['linear']},
+        {
+            'svc__C': param_range,
+            'svc__gamma' : param_range,
+            'svc__kernel' : ['rbf']
+        }
+    ];
 
 
-    # pipe = Pipeline([('scalar',RobustScaler()), ('svc',SVC(class_weight='balanced'))]);
-    # gs = GridSearchCV(pipe, param_grid, scoring='f1', n_jobs=-1, cv = 10);
-    # gs = gs.fit(total_features.squeeze(), total_lbl);
-    # print(gs.best_params_);
+    pipe = Pipeline([('scalar',RobustScaler()), ('svc',SVC(class_weight='balanced'))]);
+    gs = GridSearchCV(pipe, param_grid, scoring='f1', n_jobs=-1, cv = 10);
+    gs = gs.fit(total_features.squeeze(), total_lbl);
+    print(gs.best_params_);
 
     model = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_efficientnet_b4', pretrained=True);
     model.classifier.fc =  nn.Linear(1792, 3, bias=True);
