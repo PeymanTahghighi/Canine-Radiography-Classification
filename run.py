@@ -9,7 +9,7 @@ from glob import glob
 import cv2
 import numpy as np
 from utility import extract_sternum_features, scale_width, smooth_boundaries
-#from optimize_models import optimize_caudal_model, optimize_cranial_model, optimize_full_model, optimize_sternum_model
+from optimize_models import optimize_caudal_model, optimize_cranial_model, optimize_full_model, optimize_sternum_model
 from utility import divide_image_symmetry_line, get_symmetry_line
 import config
 from deep_learning.network import Unet
@@ -43,164 +43,88 @@ def update_folds(root_dataframe, ):
     #create_folder(f'results\\train_data\\');
     #create_folder('cache');
 
-    f = open('C:\\Users\\Admin\\Desktop\\list.txt', 'r');
-    img_list_t = [];
-    for l in f.readlines():
-        img_list_t.append(l.strip())
     for s in tqdm(spine_and_ribs.keys()):
         if spine_and_ribs[s][0]=='labeled':
             file_name = s[:s.rfind('.')];
             meta_file = pickle.load(open(f'C:\\Users\\Admin\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels\\{file_name}.meta', 'rb'));
+        
+            curr_masks  = [];
             
-            if False:
-                curr_masks  = [];
-                
-                idx = img_list_all.index(file_name);
-                img_list.append(img_list_all[idx]);
-                lbl_list.append(lbl_list_all[idx]);
-                grain_lbl_list.append([cranial_list_all[idx], caudal_list_all[idx], symmetry_list_all[idx], sternum_list_all[idx]]);
-                spine_and_rib_mask_meta = pickle.load(open(f'{config.SR_PROJECT_ROOT}\\labels\\{file_name}.meta', 'rb')) ;
+            idx = img_list_all.index(file_name);
+            img_list.append(img_list_all[idx]);
+            lbl_list.append(lbl_list_all[idx]);
+            grain_lbl_list.append([cranial_list_all[idx], caudal_list_all[idx], symmetry_list_all[idx], sternum_list_all[idx]]);
+            # spine_and_rib_mask_meta = pickle.load(open(f'{config.SR_PROJECT_ROOT}\\labels\\{file_name}.meta', 'rb')) ;
 
-                spine_mask = cv2.imread(os.path.join(config.SR_PROJECT_ROOT, 'labels', spine_and_rib_mask_meta['Spine'][2]), cv2.IMREAD_GRAYSCALE);
-                spine_mask = cv2.resize(spine_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
-                spine_mask = np.where(spine_mask > 0, 1, 0).astype(np.bool8);
-                ribs_mask = cv2.imread(os.path.join(config.SR_PROJECT_ROOT, 'labels', spine_and_rib_mask_meta['Ribs'][2]), cv2.IMREAD_GRAYSCALE);
-                ribs_mask = cv2.resize(ribs_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
-                ribs_mask = np.where(ribs_mask > 0, 1, 0).astype(np.bool8);
-                rib_spine_mask = np.zeros(shape=(ribs_mask.shape[0], ribs_mask.shape[1], 1));
-                rib_spine_mask[spine_mask] = 2;
-                rib_spine_mask[ribs_mask] = 1;
-                rib_spine_mask = np.int32(rib_spine_mask);
-                spine_mask = np.int32(spine_mask);
-                ribs_mask = np.int32(ribs_mask);
-                pickle.dump(rib_spine_mask, open(f'cache\\{file_name}_SR.msk', 'wb'));
+            # spine_mask = cv2.imread(os.path.join(config.SR_PROJECT_ROOT, 'labels', spine_and_rib_mask_meta['Spine'][2]), cv2.IMREAD_GRAYSCALE);
+            # spine_mask = cv2.resize(spine_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
+            # spine_mask = np.where(spine_mask > 0, 1, 0).astype(np.bool8);
+            # ribs_mask = cv2.imread(os.path.join(config.SR_PROJECT_ROOT, 'labels', spine_and_rib_mask_meta['Ribs'][2]), cv2.IMREAD_GRAYSCALE);
+            # ribs_mask = cv2.resize(ribs_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
+            # ribs_mask = np.where(ribs_mask > 0, 1, 0).astype(np.bool8);
+            # rib_spine_mask = np.zeros(shape=(ribs_mask.shape[0], ribs_mask.shape[1], 1));
+            # rib_spine_mask[spine_mask] = 2;
+            # rib_spine_mask[ribs_mask] = 1;
+            # rib_spine_mask = np.int32(rib_spine_mask);
+            # spine_mask = np.int32(spine_mask);
+            # ribs_mask = np.int32(ribs_mask);
+            # pickle.dump(rib_spine_mask, open(f'cache\\{file_name}_SR.msk', 'wb'));
 
-                curr_masks.append(f'cache\\{file_name}_SR.msk');
+            # curr_masks.append(f'cache\\{file_name}_SR.msk');
 
-                diaphragm_mask_meta = pickle.load(open(f'{config.D_PROJECT_ROOT}\\labels\\{file_name}.meta', 'rb'));
-                diaphragm_mask = cv2.imread(os.path.join(config.D_PROJECT_ROOT, 'labels', diaphragm_mask_meta['Diaphragm'][2]), cv2.IMREAD_GRAYSCALE);
-                diaphragm_mask = cv2.resize(diaphragm_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
-                diaphragm_mask = np.where(diaphragm_mask > 0, 1, 0);
-                pickle.dump(diaphragm_mask, open(f'cache\\{file_name}_D.msk', 'wb'));
-                curr_masks.append(f'cache\\{file_name}_D.msk');
+            # diaphragm_mask_meta = pickle.load(open(f'{config.D_PROJECT_ROOT}\\labels\\{file_name}.meta', 'rb'));
+            # diaphragm_mask = cv2.imread(os.path.join(config.D_PROJECT_ROOT, 'labels', diaphragm_mask_meta['Diaphragm'][2]), cv2.IMREAD_GRAYSCALE);
+            # diaphragm_mask = cv2.resize(diaphragm_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
+            # diaphragm_mask = np.where(diaphragm_mask > 0, 1, 0);
+            # pickle.dump(diaphragm_mask, open(f'cache\\{file_name}_D.msk', 'wb'));
+            # curr_masks.append(f'cache\\{file_name}_D.msk');
 
-                sternum_mask_meta = pickle.load(open(f'{config.ST_PROJECT_ROOT}\\labels\\{file_name}.meta', 'rb'));
-                sternum_mask = cv2.imread(os.path.join(config.ST_PROJECT_ROOT, 'labels', sternum_mask_meta['Sternum'][2]), cv2.IMREAD_GRAYSCALE);
-                sternum_mask = cv2.resize(sternum_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
-                sternum_mask = np.where(sternum_mask > 0, 1, 0);
-                pickle.dump(sternum_mask, open(f'cache\\{file_name}_ST.msk', 'wb'));
-                curr_masks.append(f'cache\\{file_name}_ST.msk');
+            # sternum_mask_meta = pickle.load(open(f'{config.ST_PROJECT_ROOT}\\labels\\{file_name}.meta', 'rb'));
+            # sternum_mask = cv2.imread(os.path.join(config.ST_PROJECT_ROOT, 'labels', sternum_mask_meta['Sternum'][2]), cv2.IMREAD_GRAYSCALE);
+            # sternum_mask = cv2.resize(sternum_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
+            # sternum_mask = np.where(sternum_mask > 0, 1, 0);
+            # pickle.dump(sternum_mask, open(f'cache\\{file_name}_ST.msk', 'wb'));
+            # curr_masks.append(f'cache\\{file_name}_ST.msk');
 
-                whole_thorax = segment_thorax(np.uint8(ribs_mask*255));
-                
-                #cranial
-                cranial = np.uint8(spine_mask*255) - whole_thorax;
-                cranial_features = extract_cranial_features(cranial);
+            # whole_thorax = segment_thorax(np.uint8(ribs_mask*255));
+            
+            # #cranial
+            # cranial = np.uint8(spine_mask*255) - whole_thorax;
+            # cranial_features = extract_cranial_features(cranial);
 
-                #Caudal
-                caudal = np.uint8(diaphragm_mask*255) - whole_thorax;
-                caudal_features = extract_cranial_features(caudal);
-                #-----------------------------------------------------
+            # #Caudal
+            # caudal = np.uint8(diaphragm_mask*255) - whole_thorax;
+            # caudal_features = extract_cranial_features(caudal);
+            # #-----------------------------------------------------
 
-                #sternum
-                spine_mask_processed = smooth_boundaries(spine_mask,10);
-                spine_mask_processed = smooth_boundaries(spine_mask_processed,25);
-                spine_mask_processed = scale_width(spine_mask_processed, 3);
-                sternum = np.logical_and(sternum_mask.squeeze(), np.where(whole_thorax>0,1,0)).astype(np.uint8);
-                sternum_features = extract_sternum_features(sternum,spine_mask_processed);
-                #-----------------------------------------------------
+            # #sternum
+            # spine_mask_processed = smooth_boundaries(spine_mask,10);
+            # spine_mask_processed = smooth_boundaries(spine_mask_processed,25);
+            # spine_mask_processed = scale_width(spine_mask_processed, 3);
+            # sternum = np.logical_and(sternum_mask.squeeze(), np.where(whole_thorax>0,1,0)).astype(np.uint8);
+            # sternum_features = extract_sternum_features(sternum,spine_mask_processed);
+            # #-----------------------------------------------------
 
-                #symmetry
-                sym_line = get_symmetry_line(spine_mask*255);
-                ribs_left, ribs_right = divide_image_symmetry_line(ribs_mask*255, sym_line);
-                thorax_left = segment_thorax(ribs_left);
-                thorax_right = segment_thorax(ribs_right);
-                symmetry_features = extract_symmetry_features(thorax_left, thorax_right);
-                #------------------------------------------------------
+            # #symmetry
+            # sym_line = get_symmetry_line(spine_mask*255);
+            # ribs_left, ribs_right = divide_image_symmetry_line(ribs_mask*255, sym_line);
+            # thorax_left = segment_thorax(ribs_left);
+            # thorax_right = segment_thorax(ribs_right);
+            # symmetry_features = extract_symmetry_features(thorax_left, thorax_right);
+            # #------------------------------------------------------
 
-                sternum_features_list.append(sternum_features);
-                symmetry_features_list.append(symmetry_features);
-                cranial_features_list.append(cranial_features);
-                caudal_features_list.append(caudal_features);
+            # sternum_features_list.append(sternum_features);
+            # symmetry_features_list.append(symmetry_features);
+            # cranial_features_list.append(cranial_features);
+            # caudal_features_list.append(caudal_features);
 
 
-                mask_list.append(curr_masks);
+            # mask_list.append(curr_masks);
 
-                #store thorax
-                cv2.imwrite(f'results\\train_data\\{file_name}.png', whole_thorax);
-                cv2.imwrite(f'results\\train_data\\{file_name}_left.png', thorax_left);
-                cv2.imwrite(f'results\\train_data\\{file_name}_right.png', thorax_right);
-            else:
-                curr_masks  = [];
-                
-                idx = img_list_all.index(file_name);
-                img_list.append(img_list_all[idx]);
-                lbl_list.append(lbl_list_all[idx]);
-                grain_lbl_list.append([cranial_list_all[idx], caudal_list_all[idx], symmetry_list_all[idx], sternum_list_all[idx]]);
-                spine_and_rib_mask_meta = pickle.load(open(f'{config.SR_PROJECT_ROOT}\\labels\\{file_name}.meta', 'rb')) ;
-
-                spine_mask = cv2.imread(os.path.join(config.SR_PROJECT_ROOT, 'labels', spine_and_rib_mask_meta['Spine'][2]), cv2.IMREAD_GRAYSCALE);
-                spine_mask = cv2.resize(spine_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
-                spine_mask = np.where(spine_mask > 0, 1, 0).astype(np.bool8);
-                ribs_mask = cv2.imread(os.path.join(config.SR_PROJECT_ROOT, 'labels', spine_and_rib_mask_meta['Ribs'][2]), cv2.IMREAD_GRAYSCALE);
-                ribs_mask = cv2.resize(ribs_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
-                ribs_mask = np.where(ribs_mask > 0, 1, 0).astype(np.bool8);
-                rib_spine_mask = np.zeros(shape=(ribs_mask.shape[0], ribs_mask.shape[1], 1));
-                rib_spine_mask[spine_mask] = 2;
-                rib_spine_mask[ribs_mask] = 1;
-                rib_spine_mask = np.int32(rib_spine_mask);
-                spine_mask = np.int32(spine_mask);
-                ribs_mask = np.int32(ribs_mask);
-                
-
-                curr_masks.append(f'cache\\{file_name}_SR.msk');
-
-                diaphragm_mask_meta = pickle.load(open(f'{config.D_PROJECT_ROOT}\\labels\\{file_name}.meta', 'rb'));
-                diaphragm_mask = cv2.imread(os.path.join(config.D_PROJECT_ROOT, 'labels', diaphragm_mask_meta['Diaphragm'][2]), cv2.IMREAD_GRAYSCALE);
-                diaphragm_mask = cv2.resize(diaphragm_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
-                diaphragm_mask = np.where(diaphragm_mask > 0, 1, 0);
-                curr_masks.append(f'cache\\{file_name}_D.msk');
-
-                sternum_mask_meta = pickle.load(open(f'{config.ST_PROJECT_ROOT}\\labels\\{file_name}.meta', 'rb'));
-                sternum_mask = cv2.imread(os.path.join(config.ST_PROJECT_ROOT, 'labels', sternum_mask_meta['Sternum'][2]), cv2.IMREAD_GRAYSCALE);
-                sternum_mask = cv2.resize(sternum_mask, (config.IMAGE_SIZE, config.IMAGE_SIZE));
-                sternum_mask = np.where(sternum_mask > 0, 1, 0);
-                curr_masks.append(f'cache\\{file_name}_ST.msk');
-
-                whole_thorax = cv2.imread(f'results\\train_data\\{file_name}.png', cv2.IMREAD_GRAYSCALE);
-                
-                #cranial
-                cranial = np.uint8(spine_mask*255) - whole_thorax;
-                cranial_features = extract_cranial_features(cranial);
-
-                #Caudal
-                caudal = np.uint8(diaphragm_mask*255) - whole_thorax;
-                caudal_features = extract_cranial_features(caudal);
-                #-----------------------------------------------------
-
-                #sternum
-                spine_mask_processed = smooth_boundaries(spine_mask,10);
-                spine_mask_processed = smooth_boundaries(spine_mask_processed,25);
-                spine_mask_processed = scale_width(spine_mask_processed, 3);
-                sternum = np.logical_and(sternum_mask.squeeze(), np.where(whole_thorax>0,1,0)).astype(np.uint8);
-                sternum_features = extract_sternum_features(sternum,spine_mask_processed);
-                #-----------------------------------------------------
-
-                #symmetry
-                sym_line = get_symmetry_line(spine_mask*255);
-                ribs_left, ribs_right = divide_image_symmetry_line(ribs_mask*255, sym_line);
-                thorax_left = cv2.imread(f'results\\train_data\\{file_name}_left.png', cv2.IMREAD_GRAYSCALE);
-                thorax_right = cv2.imread(f'results\\train_data\\{file_name}_right.png', cv2.IMREAD_GRAYSCALE);
-                symmetry_features = extract_symmetry_features(thorax_left, thorax_right);
-                #------------------------------------------------------
-
-                sternum_features_list.append(sternum_features);
-                symmetry_features_list.append(symmetry_features);
-                cranial_features_list.append(cranial_features);
-                caudal_features_list.append(caudal_features);
-
-
-                mask_list.append(curr_masks);
+            # #store thorax
+            # cv2.imwrite(f'results\\train_data\\{file_name}.png', whole_thorax);
+            # cv2.imwrite(f'results\\train_data\\{file_name}_left.png', thorax_left);
+            # cv2.imwrite(f'results\\train_data\\{file_name}_right.png', thorax_right);
 
                 #store thorax
                 # cv2.imwrite(f'results\\train_data\\{file_name}.png', whole_thorax);
@@ -209,23 +133,23 @@ def update_folds(root_dataframe, ):
                 
 
     
-    img_list = np.array(img_list);
-    mask_list = np.array(mask_list);
-    lbl_list = np.array(lbl_list);
+    #img_list = np.array(img_list);
+    #mask_list = np.array(mask_list);
+    #lbl_list = np.array(lbl_list);
     grain_lbl_list = np.array(grain_lbl_list);
-    sternum_features_list = np.array(sternum_features_list);
-    symmetry_features_list = np.array(symmetry_features_list);
-    cranial_features_list = np.array(cranial_features_list);
-    caudal_features_list = np.array(caudal_features_list);
+    # sternum_features_list = np.array(sternum_features_list);
+    # symmetry_features_list = np.array(symmetry_features_list);
+    # cranial_features_list = np.array(cranial_features_list);
+    # caudal_features_list = np.array(caudal_features_list);
 
-    pickle.dump(img_list,open(f'cache\\img_list.dmp', 'wb'));
-    pickle.dump(mask_list,open(f'cache\\mask_list.dmp', 'wb'));
-    pickle.dump(lbl_list,open(f'cache\\lbl_list.dmp', 'wb'));
+    #pickle.dump(img_list,open(f'cache\\img_list.dmp', 'wb'));
+    #pickle.dump(mask_list,open(f'cache\\mask_list.dmp', 'wb'));
+    #pickle.dump(lbl_list,open(f'cache\\lbl_list.dmp', 'wb'));
     pickle.dump(grain_lbl_list,open(f'cache\\grain_lbl_list.dmp', 'wb'));
-    pickle.dump(sternum_features_list,open(f'cache\\sternum_features_list.dmp', 'wb'));
-    pickle.dump(cranial_features_list,open(f'cache\\cranial_features_list.dmp', 'wb'));
-    pickle.dump(caudal_features_list,open(f'cache\\caudal_features_list.dmp', 'wb'));
-    pickle.dump(symmetry_features_list,open(f'cache\\symmetry_features_list.dmp', 'wb'));
+   # pickle.dump(sternum_features_list,open(f'cache\\sternum_features_list.dmp', 'wb'));
+   # pickle.dump(cranial_features_list,open(f'cache\\cranial_features_list.dmp', 'wb'));
+   # pickle.dump(caudal_features_list,open(f'cache\\caudal_features_list.dmp', 'wb'));
+   # pickle.dump(symmetry_features_list,open(f'cache\\symmetry_features_list.dmp', 'wb'));
 
     # lbl_list =  le.fit_transform(lbl_list);
     # skfold = StratifiedKFold(num_folds, shuffle=True, random_state=42);
@@ -305,8 +229,9 @@ if __name__ == "__main__":
     #store_folds();
     #(1-2)
     folds = load_folds();
-    #optimize_sternum_model(folds)
+    optimize_sternum_model(folds)
     #optimize_cranial_model(folds);
+    #optimize_caudal_model(folds);
     #optimize_full_model(folds);
 
     newtwork_trainer = NetworkTrainer();

@@ -37,10 +37,10 @@ from deep_learning.stopping_strategy import *
 from deep_learning.loss import dice_loss, focal_loss, tversky_loss
 from utility import divide_image_symmetry_line, get_symmetry_line, remove_blobs, remove_blobs_spine
 from Symmetry.thorax import segment_thorax
-from utils import create_folder, extract_cranial_features, extract_symmetry_features
+from utils import create_folder, extract_caudal_features, extract_cranial_features, extract_symmetry_features
 
 def train_cranial_model(fold_cnt, train_features, train_lbl):
-    params = {'svc__C': 1.0, 'svc__gamma': 1000.0, 'svc__kernel': 'rbf'}
+    params = {'svc__C': 0.001, 'svc__kernel': 'linear'}
     model = make_pipeline(RobustScaler(),
             SVC(C=params['svc__C'], gamma=params['svc__gamma'], kernel = params['svc__kernel']));
     train_features = list(train_features);
@@ -50,7 +50,7 @@ def train_cranial_model(fold_cnt, train_features, train_lbl):
     return model;
 
 def train_caudal_model(fold_cnt, train_features, train_lbl):
-    params = {'svc__C': 10.0, 'svc__gamma': 1000.0, 'svc__kernel': 'rbf'}
+    params = {'svc__C': 1.0, 'svc__gamma': 1000.0, 'svc__kernel': 'rbf'}
     model = make_pipeline(RobustScaler(),
             SVC(C=params['svc__C'], kernel = params['svc__kernel']));
     train_features = list(train_features);
@@ -160,8 +160,7 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
             # #-----------------------------------------------------
 
             # #Caudal
-            caudal = diaphragm - whole_thorax;
-            caudal_features = extract_cranial_features(caudal);
+            caudal_features, diaphragm = extract_caudal_features(diaphragm, whole_thorax);
             caudal_features = np.array(caudal_features)
             
             # #-----------------------------------------------------
@@ -394,83 +393,3 @@ class NetworkTrainer():
         #load model with best weights to save outputs
         model.load_state_dict(best_model);
         return model;
-    
-
-    def eval(self, checkpoint_path, test_data):
-
-        self.model.load_state_dict(pickle.load(open(checkpoint_path,'rb')));
-
-        valid_dataset = SternumDataset(test_data[0], test_data[1], test_data[2], config.valid_transforms);
-
-        valid_loader = DataLoader(valid_dataset, 
-        batch_size= config.BATCH_SIZE, shuffle=False);
-
-        #while(True):
-        pbar = enumerate(valid_loader);
-        print(('\n' + '%10s'*6) %('Epoch', 'Loss', 'Prec', 'Rec', 'F1', 'Acc'));
-        pbar = tqdm(pbar, total= len(valid_loader), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')
-        
-        all_data = [];
-        all_lbl = [];
-        cnt = 0;
-        with torch.no_grad():
-            for i ,(radiograph, mask, gt_lbl) in pbar:
-                radiograph,mask = radiograph.to(config.DEVICE), mask.to(config.DEVICE);
-
-                pred = self.model(radiograph);
-                pred = torch.sigmoid(pred) > 0.5;
-                pred_np = pred.permute(0,2,3,1).detach().cpu().numpy();
-                pred_np = np.uint8(pred_np)*255;
-
-                positives = torch.sum(pred == 1, [1,2,3]).detach().cpu().numpy();
-
-                all_data.extend(positives);
-
-                radiograph_np = radiograph.permute(0,2,3,1).detach().cpu().numpy();
-                radiograph_np = radiograph_np *  [0.229, 0.224, 0.225] + [0.485, 0.456, 0.406];
-                radiograph_np = np.uint8(radiograph_np*255);
-                for b in range((pred.shape[0])):
-                    cv2.imwrite(f'tests\\{cnt}_{gt_lbl[b]}.png', radiograph_np[b]);
-                    cv2.imwrite(f'tests\\{cnt}_{gt_lbl[b]}_seg.png', pred_np[b]);
-                    cnt += 1;
-
-        plt.scatter(all_data, all_lbl);
-        plt.show();
-    
-    def save_samples(self, fold_cnt, task_name, test_img):
-        
-        os.mkdir(f'{task_name}\\test\\{fold_cnt}');
-        
-        for radiograph_image_path in test_img:
-
-            file_name = os.path.basename(radiograph_image_path);
-            file_name = file_name[:file_name.rfind('.')];
-
-            radiograph_image = cv2.imread(radiograph_image_path,cv2.IMREAD_GRAYSCALE);
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            radiograph_image = clahe.apply(radiograph_image);
-            radiograph_image = np.expand_dims(radiograph_image, axis=2);
-            radiograph_image = np.repeat(radiograph_image, 3,axis=2);
-
-
-            transformed = config.valid_transforms(image = radiograph_image);
-            radiograph_image = transformed["image"];
-            radiograph_image = radiograph_image.to(config.DEVICE);
-            
-            out = self.model(radiograph_image.unsqueeze(dim=0));
-            out = (torch.softmax(out, dim= 1)[0].permute(1,2,0)).detach().cpu().numpy();
-            out = np.argmax(out,axis = 2);
-            ribs = (out == 1).astype("uint8")*255;
-            spine = (out == 2).astype("uint8")*255;
-            ribs_proc = remove_blobs(ribs);
-            spine_proc = remove_blobs_spine(spine);
-
-            
-            sym_line = get_symmetry_line(spine_proc);
-            ribs_left, ribs_right = divide_image_symmetry_line(ribs_proc, sym_line);
-            thorax_left = segment_thorax(ribs_left);
-            thorax_right = segment_thorax(ribs_right);
-            #total_thorax = segment_thorax(ribs_proc);
-
-            cv2.imwrite(f'{fold_cnt}\\{file_name}_left.png', thorax_left);
-            cv2.imwrite(f'{fold_cnt}\\{file_name}_right.png', thorax_right);

@@ -1,4 +1,5 @@
 
+from copy import deepcopy
 import torch
 import config
 import os
@@ -22,6 +23,45 @@ def extract_cranial_features(cranial_image):
     total_area /= w*h;
     total_diameter /= ((w+h)*2);
     return [total_area, total_diameter];
+
+def extract_caudal_features(diaphragm, whole_thorax):
+    contours = cv2.findContours(whole_thorax, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[0];
+    max_idx = -1;
+    max_area = 0;
+    for idx, c in enumerate(contours):
+        area = cv2.contourArea(c);
+        if area > max_area:
+            max_idx = idx;
+            max_area = area;
+    
+
+    rect = cv2.boundingRect(contours[max_idx]);
+    cv2.rectangle(whole_thorax, (rect[0], rect[1]), (rect[2]+rect[0], rect[3]+ rect[1]), (255,255,255),5);
+
+    diaphragm[:,:rect[0]] = 0;
+    diaphragm[:, rect[2]+rect[0]:] = 0;
+    diaphragm[:int(rect[3]/2) + rect[1],:] = 0;
+
+    caudal = diaphragm - whole_thorax;
+
+    w,h = caudal.shape;
+    contours, _ = cv2.findContours(caudal, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE);
+    max_idx = -1;
+    max_area = 0;
+    total_area = 0;
+    total_diameter = 0;
+    for idx, c in enumerate(contours):
+        area = cv2.contourArea(c);
+        if area > max_area:
+            max_idx = idx;
+            max_area = area;
+    
+    total_area = max_area;
+    total_diameter = cv2.arcLength(contours[idx], True);
+
+    total_area /= w*h;
+    total_diameter /= ((w+h)*2);
+    return [total_area, total_diameter], diaphragm;
 
 def create_folder(folder_name, delete_if_exists = True):
     if delete_if_exists is True:
