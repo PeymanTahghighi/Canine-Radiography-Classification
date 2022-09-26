@@ -12,7 +12,7 @@ from torch.utils import data
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from utility import extract_sternum_features, postprocess_sternum, scale_width
+from utility import extract_sternum_features, postprocess_sternum, remove_outliers, scale_width
 import config
 from deep_learning.network_dataset import CanineDataset
 from deep_learning.network import Unet
@@ -37,12 +37,13 @@ from deep_learning.stopping_strategy import *
 from deep_learning.loss import dice_loss, focal_loss, tversky_loss
 from utility import divide_image_symmetry_line, get_symmetry_line, remove_blobs, remove_blobs_spine
 from Symmetry.thorax import segment_thorax
-from utils import create_folder, extract_cranial_features, extract_symmetry_features
+from utils import create_folder, extract_caudal_features, extract_cranial_features, extract_symmetry_features, get_histogram, remove_outliers_hist_hor, remove_outliers_hist_ver
+import matplotlib.pyplot as plt
 
 def train_cranial_model(fold_cnt, train_features, train_lbl):
-    params = {'svc__C': 1.0, 'svc__gamma': 1000.0, 'svc__kernel': 'rbf'}
+    params = {'svc__C': 0.001, 'svc__kernel': 'linear'}
     model = make_pipeline(RobustScaler(),
-            SVC(C=params['svc__C'], gamma=params['svc__gamma'], kernel = params['svc__kernel']));
+            SVC(C=params['svc__C'],  kernel = params['svc__kernel']));
     train_features = list(train_features);
     train_features = np.array(train_features);
     model.fit(train_features, np.array(train_lbl,np.int32));
@@ -50,9 +51,9 @@ def train_cranial_model(fold_cnt, train_features, train_lbl):
     return model;
 
 def train_caudal_model(fold_cnt, train_features, train_lbl):
-    params = {'svc__C': 10.0, 'svc__gamma': 1000.0, 'svc__kernel': 'rbf'}
+    params = {'svc__C': 1.0, 'svc__gamma': 1000.0, 'svc__kernel': 'rbf'}
     model = make_pipeline(RobustScaler(),
-            SVC(C=params['svc__C'], kernel = params['svc__kernel']));
+            SVC(C=params['svc__C'], kernel = params['svc__kernel'], gamma=params['svc__gamma'],));
     train_features = list(train_features);
     train_features = np.array(train_features);
     model.fit(train_features, np.array(train_lbl,np.int32));
@@ -69,28 +70,21 @@ def train_symmetry_model(fold_cnt, train_features, train_lbl):
     return model;
 
 def train_sternum_model(fold_cnt, train_features, train_lbl):
-    train_lbl =  np.array(train_lbl);
-    train_lbl_no = train_lbl == 'No';
-    train_lbl = np.delete(train_lbl, train_lbl_no);
-    train_features = np.delete(train_features, train_lbl_no, axis = 0);
 
-    train_lbl_mid = train_lbl=='Mid';
-    train_lbl[train_lbl_mid] = 0;
-    train_lbl[train_lbl_mid==False] = 1;
-
-    params = {'svc__C': 1.0, 'svc__gamma': 0.1, 'svc__kernel': 'rbf'}
+    params = {'svc__C': 0.01, 'svc__gamma': 1.0, 'svc__kernel': 'rbf'}
     model = make_pipeline(RobustScaler(),
             SVC(class_weight='balanced', C=params['svc__C'], gamma=params['svc__gamma'], kernel = params['svc__kernel']));
     train_features = list(train_features);
     train_features = np.array(train_features);
-    model.fit(train_features, np.array(train_lbl,np.int32));
+    model.fit(np.expand_dims(train_features,axis = 1), np.array(train_lbl,np.int32));
     pickle.dump(model, open(f'results\\{fold_cnt}\\sternum_model.pt', 'wb'));
     return model;
 
 def train_full_model(fold_cnt, train_features, train_lbl):
-    params = {'svc__C': 1000.0, 'svc__gamma': 0.1, 'svc__kernel': 'rbf'}
+    params = {'gradientboostingclassifier__learning_rate': 0.001, 'gradientboostingclassifier__max_depth': 4, 'gradientboostingclassifier__n_estimators': 500}
     model = make_pipeline(RobustScaler(),
-            SVC(class_weight='balanced', C=params['svc__C'], gamma=params['svc__gamma'], kernel = params['svc__kernel']));
+            GradientBoostingClassifier(learning_rate=params['gradientboostingclassifier__learning_rate'], max_depth=params['gradientboostingclassifier__max_depth'], 
+            n_estimators = params['gradientboostingclassifier__n_estimators']));
     model.fit(train_features, np.array(train_lbl,np.int32));
     pickle.dump(model, open(f'results\\{fold_cnt}\\full_model.pt', 'wb'));
     return model;
@@ -99,10 +93,10 @@ def train_full_model(fold_cnt, train_features, train_lbl):
 def evaluate_test_data(fold_cnt, segmentation_models, classification_models, test_imgs, test_grain_lbl, test_lbl, transformer = None, use_saved_features = False):
     all_predictions = [];
     cnt = 0;
-    if use_saved_features is False:
-        create_folder(f'results\\{fold_cnt}\\outputs', delete_if_exists=True);
+    #if use_saved_features is False:
+    #    create_folder(f'results\\{fold_cnt}\\outputs', delete_if_exists=True);
 
-    for radiograph_image_path in tqdm(test_imgs):
+    for idx,radiograph_image_path in (enumerate(test_imgs)):
         if use_saved_features is False:
             radiograph_image = cv2.imread(os.path.join(config.IMAGE_DATASET_ROOT,f'{radiograph_image_path}.jpeg'),cv2.IMREAD_GRAYSCALE);
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
@@ -123,66 +117,84 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
             ribs = (out == 1).astype("uint8")*255;
             spine = (out == 2).astype("uint8")*255;
 
-            ribs = remove_blobs(ribs);
-            spine = remove_blobs_spine(spine).astype("uint8");
-            #----------------------------------------------------
+            #ribs = remove_blobs(ribs);
 
-            #diaphragm
-            diaphragm = segmentation_models[1](radiograph_image.unsqueeze(dim=0));
-            diaphragm = torch.sigmoid(diaphragm)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
-            diaphragm = diaphragm > 0.5;
-            diaphragm = np.uint8(diaphragm)*255;
-            #----------------------------------------------------
+            # spine = remove_blobs_spine(spine).astype("uint8");
+            # #----------------------------------------------------
 
-            #sternum
-            sternum = segmentation_models[2](radiograph_image.unsqueeze(dim=0));
-            sternum = torch.sigmoid(sternum)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
-            sternum = sternum > 0.7;
-            sternum = np.uint8(sternum)*255;
-            sternum = postprocess_sternum(sternum);
-            #----------------------------------------------------
+            # #diaphragm
+            # diaphragm = segmentation_models[1](radiograph_image.unsqueeze(dim=0));
+            # diaphragm = torch.sigmoid(diaphragm)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
+            # diaphragm = diaphragm > 0.5;
+            # diaphragm = np.uint8(diaphragm)*255;
+            # #----------------------------------------------------
 
-            #Symmetry
-            sym_line = get_symmetry_line(spine);
-            ribs_left, ribs_right = divide_image_symmetry_line(ribs, sym_line);
-            thorax_left = segment_thorax(ribs_left);
-            thorax_right = segment_thorax(ribs_right);
-            whole_thorax = segment_thorax(ribs);
-            symmetry_features = extract_symmetry_features(thorax_left, thorax_right);
-            symmetry_features = np.array(symmetry_features);
+            # #sternum
+            # sternum = segmentation_models[2](radiograph_image.unsqueeze(dim=0));
+            # sternum = torch.sigmoid(sternum)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
+            # sternum = sternum > 0.7;
+            # sternum = np.uint8(sternum)*255;
+            # sternum = postprocess_sternum(sternum);
+            # #----------------------------------------------------
+
+            # #Symmetry
             
-            #----------------------------------------------------
+            # ribs = cv2.imread(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_ribs.png',cv2.IMREAD_GRAYSCALE);
+            # hist_hor, hist_ver = get_histogram(ribs,1024);
+            # ribs_new = remove_outliers_hist_ver(hist_ver, ribs);
+            # ribs_new = remove_outliers_hist_hor(hist_hor, ribs_new);
+            # koft = (ribs-ribs_new).sum();            
+            # if koft > 150000:
 
-            #Cranial
-            cranial = spine - whole_thorax;
-            cranial_features = extract_cranial_features(cranial);
-            cranial_features = np.array(cranial_features);
-            #-----------------------------------------------------
-
-            #Caudal
-            caudal = diaphragm - whole_thorax;
-            caudal_features = extract_cranial_features(caudal);
-            caudal_features = np.array(caudal_features)
+            #     # fig, ax = plt.subplots(1,4);
+            #     # ax[0].plot(hist_hor);
+            #     # ax[1].plot(hist_ver);
+            #     # ax[2].imshow(whole_thorax);
+            #     # ax[3].imshow(whole_thorax_new);
+            #     # #plt.savefig(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_clean.png')
+            #     # plt.show();
+            #     spine = cv2.imread(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_spine.png', cv2.IMREAD_GRAYSCALE);
+            #     sym_line = get_symmetry_line(spine);
+            #     ribs_left, ribs_right = divide_image_symmetry_line(ribs_new, sym_line);
+            #     whole_thorax = segment_thorax(ribs_new);
+            #     thorax_left = segment_thorax(ribs_left);
+            #     thorax_right = segment_thorax(ribs_right);
+            #     symmetry_features = extract_symmetry_features(thorax_left, thorax_right);
+            #     symmetry_features = np.array(symmetry_features);
             
-            #-----------------------------------------------------
+            # # #----------------------------------------------------
 
-            #Sternum
-            spine_scaled = scale_width(spine,3).astype('uint8');
-            sternum = np.logical_and(sternum.squeeze(), np.where(whole_thorax>0, 1, 0)).astype(np.uint8);
-            sternum_features = extract_sternum_features(sternum, spine_scaled);
+            # # #Cranial
+            # cranial = spine - whole_thorax;
+            # cranial_features = extract_cranial_features(cranial);
+            # cranial_features = np.array(cranial_features);
+            # # #-----------------------------------------------------
 
-            pickle.dump(cranial_features, open(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_cranial.feat','wb'));
-            pickle.dump(caudal_features, open(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_caudal.feat','wb'));
-            pickle.dump(symmetry_features, open(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_symmetry.feat','wb'));
-            pickle.dump(sternum_features, open(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_sternum.feat','wb'));
+            # # #Caudal
+            # caudal_features, diaphragm = extract_caudal_features(diaphragm, whole_thorax);
+            # caudal_features = np.array(caudal_features)
+            
+            # # #-----------------------------------------------------
 
-            #store results
-            cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_spine.png', spine);
-            cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_spine_scaled.png', spine_scaled);
-            cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_ribs.png', ribs);
-            cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_diaph.png', diaphragm);
-            cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_sternum.png', sternum*255);
-            cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_thorax.png', whole_thorax);
+            # # #Sternum
+            # spine_scaled = scale_width(spine,3).astype('uint8');
+            # sternum = np.logical_and(sternum.squeeze(), np.where(whole_thorax>0, 1, 0)).astype(np.uint8);
+            # sternum_features = extract_sternum_features(sternum, spine_scaled);
+
+            # pickle.dump(cranial_features, open(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_cranial.feat','wb'));
+            # pickle.dump(caudal_features, open(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_caudal.feat','wb'));
+            #pickle.dump(symmetry_features, open(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_symmetry.feat','wb'));
+        # pickle.dump(sternum_features, open(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_sternum.feat','wb'));
+
+        # #store results
+        # cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_spine.png', spine);
+        # cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_spine_scaled.png', spine_scaled);
+            cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_ribs_orig.png', ribs);
+        # cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_diaph.png', diaphragm);
+        # cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_sternum.png', sternum*255);
+            # cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_thorax.png', whole_thorax);
+            # cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_left.png', thorax_left);
+            # cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_right.png', thorax_right);
             
         else:
             symmetry_features = pickle.load(open(f'results\\{fold_cnt}\\outputs\\{radiograph_image_path}_symmetry.feat','rb'));
@@ -193,25 +205,23 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
     #     cranial_lbl = classification_models[0].predict(cranial_features.reshape(1,-1));
     #     caudal_lbl = classification_models[1].predict(caudal_features.reshape(1,-1));
     #     symmetry_lbl = classification_models[2].predict(symmetry_features.reshape(1,-1));
-    #     if sternum_features[0] > 0:
-    #         out_sternum = classification_models[3].predict(np.array(sternum_features).reshape(1,-1));
-    #         if out_sternum[0] == 1:
-    #             sternum_lbl = 'Yes'
-    #         else:
-    #             sternum_lbl = 'Mid'
-    #     else:
-    #         sternum_lbl = 'No';
+    #     sternum_lbl = classification_models[3].predict(np.array(sternum_features[1]).reshape(1,-1));
+            
         
-    #     grain_lbls = [cranial_lbl[0], caudal_lbl[0], symmetry_lbl[0], sternum_lbl];
-    #     grain_lbls = transformer.transform(np.array(grain_lbls).reshape(1,-1));
+    #     grain_lbls = [cranial_lbl[0], caudal_lbl[0],  sternum_lbl[0]];
+
+    #     #grain_lbls = transformer.transform(np.array(grain_lbls).reshape(1,-1));
     #     #-----------------------------------------------------
 
     #     # cv2.imshow('spine', spine);
     #     # cv2.waitKey();
 
-    #     quality_lbl = classification_models[4].predict(grain_lbls);
+    #     quality_lbl = classification_models[4].predict(np.array(grain_lbls).reshape(1,-1));
+    #     if quality_lbl[0] != test_lbl[idx]:
+    #         print(f'grain: {grain_lbls} \ttrue grain: {test_grain_lbl[idx]}\tpred: {quality_lbl[0]}\ttrue: {test_lbl[idx]}');
+    #         print(radiograph_image_path);
 
-    #     all_predictions.append([cranial_lbl[0], caudal_lbl[0], symmetry_lbl[0], sternum_lbl, quality_lbl[0]]);
+    #     all_predictions.append([cranial_lbl[0], caudal_lbl[0], sternum_lbl[0], quality_lbl[0]]);
     
 
     # #get performance metrics
@@ -226,11 +236,11 @@ def evaluate_test_data(fold_cnt, segmentation_models, classification_models, tes
     # symmetry_precision, symmetry_recall, symmetry_f1,_ = precision_recall_fscore_support(np.array(test_grain_lbl[:,2],np.int32), np.array(all_predictions[:,2],np.int32), average = 'binary');
     # symmetry_accuracy = accuracy_score(np.array(test_grain_lbl[:,2],np.int32), np.array(all_predictions[:,2],np.int32));
 
-    # sternum_precision, sternum_recall, sternum_f1,_ = precision_recall_fscore_support(test_grain_lbl[:,3], all_predictions[:,3], average='macro');
-    # sternum_accuracy = accuracy_score(test_grain_lbl[:,3], all_predictions[:,3]);
+    # sternum_precision, sternum_recall, sternum_f1,_ = precision_recall_fscore_support(np.array(test_grain_lbl[:,2],np.int32), np.array(all_predictions[:,2],np.int32), average='binary');
+    # sternum_accuracy = accuracy_score(test_grain_lbl[:,2], all_predictions[:,2]);
 
-    # quality_precision, quality_recall, quality_f1,_ = precision_recall_fscore_support(test_lbl, np.array(all_predictions[:,4],np.int32), average='binary');
-    # quality_accuracy = accuracy_score(test_lbl, np.array(all_predictions[:,4],np.int32));
+    # quality_precision, quality_recall, quality_f1,_ = precision_recall_fscore_support(test_lbl, np.array(all_predictions[:,3],np.int32), average='binary');
+    # quality_accuracy = accuracy_score(test_lbl, np.array(all_predictions[:,3],np.int32));
     # # #--------------------------------------------------
 
     # return [cranial_precision, cranial_recall, cranial_f1, cranial_accuracy],\
@@ -392,83 +402,3 @@ class NetworkTrainer():
         #load model with best weights to save outputs
         model.load_state_dict(best_model);
         return model;
-    
-
-    def eval(self, checkpoint_path, test_data):
-
-        self.model.load_state_dict(pickle.load(open(checkpoint_path,'rb')));
-
-        valid_dataset = SternumDataset(test_data[0], test_data[1], test_data[2], config.valid_transforms);
-
-        valid_loader = DataLoader(valid_dataset, 
-        batch_size= config.BATCH_SIZE, shuffle=False);
-
-        #while(True):
-        pbar = enumerate(valid_loader);
-        print(('\n' + '%10s'*6) %('Epoch', 'Loss', 'Prec', 'Rec', 'F1', 'Acc'));
-        pbar = tqdm(pbar, total= len(valid_loader), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')
-        
-        all_data = [];
-        all_lbl = [];
-        cnt = 0;
-        with torch.no_grad():
-            for i ,(radiograph, mask, gt_lbl) in pbar:
-                radiograph,mask = radiograph.to(config.DEVICE), mask.to(config.DEVICE);
-
-                pred = self.model(radiograph);
-                pred = torch.sigmoid(pred) > 0.5;
-                pred_np = pred.permute(0,2,3,1).detach().cpu().numpy();
-                pred_np = np.uint8(pred_np)*255;
-
-                positives = torch.sum(pred == 1, [1,2,3]).detach().cpu().numpy();
-
-                all_data.extend(positives);
-
-                radiograph_np = radiograph.permute(0,2,3,1).detach().cpu().numpy();
-                radiograph_np = radiograph_np *  [0.229, 0.224, 0.225] + [0.485, 0.456, 0.406];
-                radiograph_np = np.uint8(radiograph_np*255);
-                for b in range((pred.shape[0])):
-                    cv2.imwrite(f'tests\\{cnt}_{gt_lbl[b]}.png', radiograph_np[b]);
-                    cv2.imwrite(f'tests\\{cnt}_{gt_lbl[b]}_seg.png', pred_np[b]);
-                    cnt += 1;
-
-        plt.scatter(all_data, all_lbl);
-        plt.show();
-    
-    def save_samples(self, fold_cnt, task_name, test_img):
-        
-        os.mkdir(f'{task_name}\\test\\{fold_cnt}');
-        
-        for radiograph_image_path in test_img:
-
-            file_name = os.path.basename(radiograph_image_path);
-            file_name = file_name[:file_name.rfind('.')];
-
-            radiograph_image = cv2.imread(radiograph_image_path,cv2.IMREAD_GRAYSCALE);
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            radiograph_image = clahe.apply(radiograph_image);
-            radiograph_image = np.expand_dims(radiograph_image, axis=2);
-            radiograph_image = np.repeat(radiograph_image, 3,axis=2);
-
-
-            transformed = config.valid_transforms(image = radiograph_image);
-            radiograph_image = transformed["image"];
-            radiograph_image = radiograph_image.to(config.DEVICE);
-            
-            out = self.model(radiograph_image.unsqueeze(dim=0));
-            out = (torch.softmax(out, dim= 1)[0].permute(1,2,0)).detach().cpu().numpy();
-            out = np.argmax(out,axis = 2);
-            ribs = (out == 1).astype("uint8")*255;
-            spine = (out == 2).astype("uint8")*255;
-            ribs_proc = remove_blobs(ribs);
-            spine_proc = remove_blobs_spine(spine);
-
-            
-            sym_line = get_symmetry_line(spine_proc);
-            ribs_left, ribs_right = divide_image_symmetry_line(ribs_proc, sym_line);
-            thorax_left = segment_thorax(ribs_left);
-            thorax_right = segment_thorax(ribs_right);
-            #total_thorax = segment_thorax(ribs_proc);
-
-            cv2.imwrite(f'{fold_cnt}\\{file_name}_left.png', thorax_left);
-            cv2.imwrite(f'{fold_cnt}\\{file_name}_right.png', thorax_right);

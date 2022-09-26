@@ -6,8 +6,10 @@ import cv2
 import numpy as np
 import os
 from sklearn.model_selection import KFold, StratifiedKFold
-from network_trainer import NetworkTrainer
 import pandas as pd
+import matplotlib.pyplot as plt
+from thorax import segment_thorax
+from utility import divide_image_symmetry_line, get_symmetry_line
 
 def replace_paranthes(name):
     
@@ -85,8 +87,65 @@ def preload_dataset(root):
 
     return image_list, mask_list, lbl_list;
 
+def get_histogram(img, bins):
+    temp_img = np.where(img == 255, 1, 0);
+    h,w = img.shape;
+    if h < bins:
+        ph = bins;
+        padded_img = np.zeros((ph,w));
+        padded_img[:h,:] = img;
+        img = padded_img;
+        h = ph;
+
+    rows_per_bin = int(h / bins);
+    hist_horizontal = [];
+    for i in range(0,h,rows_per_bin):
+        s = temp_img[i:i+rows_per_bin,:];
+        hist_horizontal.append(int(s.sum()));
+    
+    hist_horizontal = np.array(hist_horizontal, dtype=np.float32);
+    hist_horizontal = np.expand_dims(hist_horizontal, axis=1);
+    hist_horizontal = hist_horizontal / hist_horizontal.sum();
+
+    hist_vertical = [];
+    for i in range(0,w,rows_per_bin):
+        s = temp_img[:,i:i+rows_per_bin];
+        hist_vertical.append(int(s.sum()));
+    
+    hist_vertical = np.array(hist_vertical, dtype=np.float32);
+    hist_vertical = np.expand_dims(hist_vertical, axis=1);
+    hist_vertical = hist_vertical / hist_vertical.sum();
+    
+    return hist_horizontal, hist_vertical;
+
 if __name__ == "__main__":
-    # image_list, mask_list, lbl_list = preload_dataset('C:\\PhD\\Miscellaneous\\Spine and Ribs');
+    meta_file = pickle.load(open('C:\\Users\\Admin\\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels\\DV13.meta', 'rb'));
+    rib_mask_name = meta_file['Ribs'][2];
+    spine_mask_name = meta_file['Spine'][2];
+    rib_mask = cv2.imread(f'C:\\Users\\Admin\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels\\{rib_mask_name}', cv2.IMREAD_GRAYSCALE);
+    spine_mask = cv2.imread(f'C:\\Users\\Admin\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels\\{spine_mask_name}', cv2.IMREAD_GRAYSCALE);
+    rib_mask = np.where(rib_mask>0, 255, 0).astype("uint8");
+    spine_mask = np.where(spine_mask>0, 255, 0).astype("uint8");
+
+    sym_line = get_symmetry_line(spine_mask);
+    ribs_left, ribs_right = divide_image_symmetry_line(rib_mask, sym_line);
+    thorax_right = segment_thorax(ribs_right);
+    hist_hor, hist_ver = get_histogram(thorax_right,64);
+    hist_hor = np.squeeze(hist_hor);
+    fig = plt.figure();
+    fig.set_size_inches(20,20);
+    ax = plt.axes();
+    ax.bar(np.arange(0,64), hist_hor,);
+    
+    plt.show();
+    thorax_left = segment_thorax(ribs_left);
+    #whole_thorax = segment_thorax(rib_mask);
+
+
+
+
+    
+    image_list, mask_list, lbl_list = preload_dataset('C:\\PhD\\Miscellaneous\\Spine and Ribs');
     # all_data = [image_list, mask_list, lbl_list];
     # pickle.dump(all_data, open('all_data.dmp', 'wb'));
     image_list, mask_list, lbl_list = pickle.load(open('all_data.dmp', 'rb'));

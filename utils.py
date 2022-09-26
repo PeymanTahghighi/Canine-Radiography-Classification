@@ -1,4 +1,5 @@
 
+from copy import deepcopy
 import torch
 import config
 import os
@@ -9,6 +10,7 @@ from utility import divide_image_symmetry_line, get_symmetry_line, remove_blobs,
 from Symmetry.thorax import segment_thorax
 import pickle
 from pystackreg import StackReg
+import matplotlib.pyplot as plt
 
 def extract_cranial_features(cranial_image):
     w,h = cranial_image.shape;
@@ -22,6 +24,45 @@ def extract_cranial_features(cranial_image):
     total_area /= w*h;
     total_diameter /= ((w+h)*2);
     return [total_area, total_diameter];
+
+def extract_caudal_features(diaphragm, whole_thorax):
+    contours = cv2.findContours(whole_thorax, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[0];
+    max_idx = -1;
+    max_area = 0;
+    for idx, c in enumerate(contours):
+        area = cv2.contourArea(c);
+        if area > max_area:
+            max_idx = idx;
+            max_area = area;
+    
+
+    rect = cv2.boundingRect(contours[max_idx]);
+    cv2.rectangle(whole_thorax, (rect[0], rect[1]), (rect[2]+rect[0], rect[3]+ rect[1]), (255,255,255),5);
+
+    diaphragm[:,:rect[0]] = 0;
+    diaphragm[:, rect[2]+rect[0]:] = 0;
+    diaphragm[:int(rect[3]/2) + rect[1],:] = 0;
+
+    caudal = diaphragm - whole_thorax;
+
+    w,h = caudal.shape;
+    contours, _ = cv2.findContours(caudal, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE);
+    max_idx = -1;
+    max_area = 0;
+    total_area = 0;
+    total_diameter = 0;
+    for idx, c in enumerate(contours):
+        area = cv2.contourArea(c);
+        if area > max_area:
+            max_idx = idx;
+            max_area = area;
+    
+    total_area = max_area;
+    total_diameter = cv2.arcLength(contours[idx], True);
+
+    total_area /= w*h;
+    total_diameter /= ((w+h)*2);
+    return [total_area, total_diameter], diaphragm;
 
 def create_folder(folder_name, delete_if_exists = True):
     if delete_if_exists is True:
@@ -191,6 +232,14 @@ def extract_symmetry_features(img_left, img_right):
     hist_right_crop_hor, hist_right_crop_ver = get_histogram(img_crop_right, 256);
     iou,img_right_flipped, xor = IoU(img_left, img_right);
     _, hist_right_ver = get_histogram(img_right_flipped, 256);
+    # fig, ax = plt.subplots(1,2);
+    # ax[0].hist(hist_left_hor);
+    # ax[0].hist(hist_right_hor);
+
+    # ax[1].hist(hist_left_ver);
+    # ax[1].hist(hist_right_ver);
+    # plt.title(txt);
+    # plt.show();
 
 
     jsd1 = JSD(hist_left_hor, hist_right_hor);
@@ -210,9 +259,102 @@ def extract_symmetry_features(img_left, img_right):
     #total_data.append(np.concatenate([jsd1, jsd2, diff1, diff2, diff3, f, s], axis=0));
 
     feat = [];
+    feat.append(f);
+    feat.append(s);
+    feat.append(s_crop);
     feat.append(f_crop);
+    feat.append(jsd1);
+    feat.append(jsd2);
+    feat.append(jsd3);
+    feat.append(jsd4);
+    feat.append(diff1);
     feat.append(diff2);
     feat.append(diff3);
+    feat.append(diff4);
+    feat.append(iou_crop_lr);
     feat.append(iou_crop_rl);
+    feat.append(xor_crop_lr);
+    feat.append(xor_crop_rl);
+    feat.append(iou_lr);
+    feat.append(iou_rl);
+    feat.append(xor_lr);
+    feat.append(xor_rl);
+    # feat.append(hist_left_hor);
+    # feat.append(hist_right_hor);
+    # feat.append(hist_right_crop_hor);
+    # feat.append(hist_left_crop_hor);
 
     return feat;
+
+
+def remove_outliers_hist_hor(hist, img):
+    hist_thresh = np.where(hist.flatten() != 0)[0];
+    streak_cnt = 0;
+    streak_start = -1;
+    streak_end = 0;
+    max_streak = 0;
+    max_start = 0;
+    max_end = 0;
+    for idx in range(len(hist_thresh)-1):
+        if hist_thresh[idx+1] - hist_thresh[idx] < 50:
+            streak_cnt += 1;
+            if streak_start == -1:
+                streak_start = hist_thresh[idx];
+        else:
+            streak_end = hist_thresh[idx];
+            if streak_cnt > max_streak:
+                max_streak = streak_cnt;
+                max_start = streak_start;
+                max_end = streak_end;
+            streak_start = -1;
+            streak_end = -1;
+            streak_cnt = 0;
+    
+    streak_end = hist_thresh[idx];
+    if streak_cnt > max_streak:
+        max_streak = streak_cnt;
+        max_start = streak_start;
+        max_end = streak_end;
+    img_new = deepcopy(img);
+    img_new[:max_start,:] = 0
+    img_new[max_end:,:] = 0
+
+    return img_new;
+
+def remove_outliers_hist_ver(hist, img):
+    hist_thresh = np.where(hist.flatten() != 0)[0];
+    streak_cnt = 0;
+    streak_start = -1;
+    streak_end = 0;
+    min_streak = 1024*1024;
+    min_start = 0;
+    min_end = 0;
+    streak_list = [];
+    for idx in range(len(hist_thresh)-1):
+        if hist_thresh[idx+1] - hist_thresh[idx] < 10:
+            streak_cnt += 1;
+            if streak_start == -1:
+                streak_start = hist_thresh[idx];
+        else:
+            streak_end = hist_thresh[idx]+1 if hist_thresh[idx] < 1024 else hist_thresh[idx];
+            streak_list.append([streak_start,streak_end,streak_end - streak_start]);
+            if streak_cnt < min_streak:
+                min_streak = streak_cnt;
+                min_start = streak_start;
+                min_end = streak_end;
+            streak_start = -1;
+            streak_end = -1;
+            streak_cnt = 0;
+    
+    streak_end = hist_thresh[-1];
+    streak_list.append([streak_start,streak_end,streak_end - streak_start]);
+    streak_list.sort(key=lambda x:x[2],reverse=True);
+    streak_list = np.array(streak_list);
+    avg = np.mean(streak_list,axis=0)[2];
+    img_new = deepcopy(img);
+    for i in range(0,len(streak_list)):
+        if streak_list[i][2] < avg*0.65:
+            img_new[:,streak_list[i][0]:streak_list[i][1]] = 0
+            
+    
+    return img_new;

@@ -9,7 +9,7 @@ from glob import glob
 import cv2
 import numpy as np
 from utility import extract_sternum_features, scale_width, smooth_boundaries
-#from optimize_models import optimize_caudal_model, optimize_cranial_model, optimize_full_model, optimize_sternum_model
+from optimize_models import optimize_caudal_model, optimize_cranial_model, optimize_full_model, optimize_sternum_model, optimize_symmetry_model
 from utility import divide_image_symmetry_line, get_symmetry_line
 import config
 from deep_learning.network import Unet
@@ -42,17 +42,14 @@ def update_folds(root_dataframe, ):
 
     #create_folder(f'results\\train_data\\');
     #create_folder('cache');
+    lst = ['205-1', '677']
 
-    f = open('C:\\Users\\Admin\\Desktop\\list.txt', 'r');
-    img_list_t = [];
-    for l in f.readlines():
-        img_list_t.append(l.strip())
     for s in tqdm(spine_and_ribs.keys()):
         if spine_and_ribs[s][0]=='labeled':
             file_name = s[:s.rfind('.')];
-            meta_file = pickle.load(open(f'C:\\Users\\Admin\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels\\{file_name}.meta', 'rb'));
+            if file_name in lst:
+                meta_file = pickle.load(open(f'C:\\Users\\Admin\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels\\{file_name}.meta', 'rb'));
             
-            if False:
                 curr_masks  = [];
                 
                 idx = img_list_all.index(file_name);
@@ -131,6 +128,9 @@ def update_folds(root_dataframe, ):
                 cv2.imwrite(f'results\\train_data\\{file_name}_left.png', thorax_left);
                 cv2.imwrite(f'results\\train_data\\{file_name}_right.png', thorax_right);
             else:
+
+                meta_file = pickle.load(open(f'C:\\Users\\Admin\OneDrive - University of Guelph\\Miscellaneous\\Spine and Ribs\\labels\\{file_name}.meta', 'rb'));
+            
                 curr_masks  = [];
                 
                 idx = img_list_all.index(file_name);
@@ -201,11 +201,6 @@ def update_folds(root_dataframe, ):
 
 
                 mask_list.append(curr_masks);
-
-                #store thorax
-                # cv2.imwrite(f'results\\train_data\\{file_name}.png', whole_thorax);
-                # cv2.imwrite(f'results\\train_data\\{file_name}_left.png', thorax_left);
-                # cv2.imwrite(f'results\\train_data\\{file_name}_right.png', thorax_right);
                 
 
     
@@ -302,11 +297,13 @@ if __name__ == "__main__":
 
     #(1-1)
     #update_folds(root_dataframe);
-    store_folds();
+    #store_folds();
     #(1-2)
     folds = load_folds();
     #optimize_sternum_model(folds)
+    optimize_symmetry_model(folds)
     #optimize_cranial_model(folds);
+    #optimize_caudal_model(folds);
     #optimize_full_model(folds);
 
     newtwork_trainer = NetworkTrainer();
@@ -341,27 +338,44 @@ if __name__ == "__main__":
         sym_lbl[one_below] = 0;
         sym_lbl[above_one] = 1;
         test_grain_lbl[:,2] = sym_lbl;
+
+        sternum_lbl = np.array(train_grain_lbl[:,3]);
+        sternum_lbl[sternum_lbl=='No'] = 0;
+        sternum_lbl[sternum_lbl=='Mid'] = 0;
+        sternum_lbl[sternum_lbl=='Yes'] = 1;
+        sternum_lbl = np.int32(sternum_lbl);
+        train_grain_lbl[:,3] = sternum_lbl;
+
+        sternum_lbl = np.array(test_grain_lbl[:,3]);
+        sternum_lbl[sternum_lbl=='No'] = 0;
+        sternum_lbl[sternum_lbl=='Mid'] = 0;
+        sternum_lbl[sternum_lbl=='Yes'] = 1;
+        sternum_lbl = np.int32(sternum_lbl);
+        test_grain_lbl[:,3] = sternum_lbl;
         #=======================================
+
+        train_grain_lbl = np.delete(train_grain_lbl, 2, 1);
+        test_grain_lbl = np.delete(test_grain_lbl, 2, 1);
 
         #create root fold folder
         #create_folder(f'results\\{idx}', delete_if_exists=False);
 
         print(f'\n================= Starting fold {idx} =================\n');
 
-        c_transform = ColumnTransformer([
-        ('onehot', OneHotEncoder(), [3]),
-        ('nothing', 'passthrough', [0,1,2])
-        ]);
+        # c_transform = ColumnTransformer([
+        # ('onehot', OneHotEncoder(), [3]),
+        # ('nothing', 'passthrough', [0,1,2])
+        # ]);
 
 
-        full_classification_model = train_full_model(idx, c_transform.fit_transform(train_grain_lbl).astype(np.float32), train_lbl);
+        full_classification_model = train_full_model(idx, (train_grain_lbl).astype(np.float32), train_lbl);
         
         #(2-1)
         print('------------- Training spine and ribs model ---------------\n');
         cranial_classification_model = train_cranial_model(idx, cranial_features, train_grain_lbl[:,0]);
         caudal_classification_model = train_caudal_model(idx, caudal_features, train_grain_lbl[:,1]);
         symmetry_classification_model = train_symmetry_model(idx, symmetry_features, train_grain_lbl[:,2]);
-        sternum_classification_model = train_sternum_model(idx, sternum_features, train_grain_lbl[:,3]);
+        sternum_classification_model = train_sternum_model(idx, sternum_features[:,1], train_grain_lbl[:,2]);
         spine_and_ribs_segmentation_model = newtwork_trainer.train('spine and ribs', 3, spine_and_ribs_segmentation_model, idx, train_imgs, train_mask[:,0], 
         test_imgs, test_mask[:,0], load_trained_model=True);
         
@@ -381,7 +395,7 @@ if __name__ == "__main__":
         test_imgs,
         test_grain_lbl,
         test_lbl,
-        c_transform,
+        None,
         use_saved_features=False);
 
         # total_cranial.append(cranial_results);

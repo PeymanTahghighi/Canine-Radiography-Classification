@@ -5,7 +5,6 @@ from skimage.filters import gaussian
 from skimage.segmentation import active_contour
 import cv2
 from glob import glob
-import config
 import os
 import threading
 
@@ -27,7 +26,7 @@ def subtask(img, init, total_thorax, idx):
 def segment_thorax(img):
 
     #img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE);
-    img = cv2.resize(img, (config.IMAGE_SIZE,config.IMAGE_SIZE));
+    img = cv2.resize(img, (1024,1024));
     h,w = img.shape;
     segment_thorax = np.ones(shape=img.shape, dtype=np.uint8);
 
@@ -70,9 +69,14 @@ def segment_thorax(img):
     for t in threads:
         t.join();
 
-
-        
-
+    # img_thresh = img==0;
+    # img = np.repeat(np.expand_dims(img, axis = 2), 3, axis = 2);
+    # img = np.where(img > [0,0,0], [255,0,0],[0,0,0]).astype("uint8");
+    # img[img_thresh] = [255,255,255]
+    # fig, ax = plt.subplots(figsize=(7, 7))
+    # ax.imshow(img, cmap=plt.cm.gray)
+    # ax.plot(total_thorax[0][:, 0], total_thorax[0][:, 1], '-b', lw=3)
+    # plt.show();
     ret_thorax = total_thorax[0];
     for i in range(1,5):
         ret_thorax = cv2.bitwise_or(total_thorax[i], ret_thorax);
