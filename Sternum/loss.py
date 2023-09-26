@@ -12,17 +12,12 @@ import config
 def dice_loss(logits, 
                 true, 
                 eps=1e-7, 
-                sigmoid = False,
-                multilabel = False,
-                arange_logits = False):
+                sigmoid = False,):
 
     if sigmoid is True:
         logits = torch.sigmoid(logits);
-    
-    if arange_logits is True:
-        logits = logits.permute(0,2,3,1);
 
-    dims = (1,2,3);
+    dims = (1,2);
 
     intersection = torch.sum(true * logits, dims);
     union = torch.sum(true + logits, dims);

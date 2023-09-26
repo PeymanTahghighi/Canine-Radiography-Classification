@@ -31,6 +31,16 @@ class GeneralizationLoss(StoppingStrategy):
     def reset(self):
         self.__min = 9999;
 
+    def state_dict(self):
+        return {
+            'min': self.__min, 
+        }
+    def get_min(self):
+        return self.__min;
+
+    def load_state_dict(self, dict):
+        self.__min = dict['generalization_loss'];
+
 class CombinedTrainValid(StoppingStrategy):
     def __init__(self, alpha, strip) -> None:
         super().__init__(alpha);
@@ -73,3 +83,21 @@ class CombinedTrainValid(StoppingStrategy):
         self.__generalization_loss.reset();
         self.__sum_over_strip = 0;
         self.__min_over_strip = 999;
+
+    def state_dict(self):
+        return {
+            'current_strip' : self.__current_strip,
+            'generalization_loss': self.__generalization_loss.get_min(),
+            'sum_over_strip': self.__sum_over_strip,
+            'min_over_strip': self.__min_over_strip,
+            'alpha': self._alpha,
+            'strip': self.__strip
+        }
+    
+    def load_state_dict(self, dict):
+        self.__current_strip = dict['current_strip'];
+        self.__generalization_loss.load_state_dict(dict);
+        self.__sum_over_strip = dict['sum_over_strip'];
+        self.__min_over_strip = dict['min_over_strip'];
+        self._alpha = dict['alpha'];
+        self.__strip = dict['strip'];

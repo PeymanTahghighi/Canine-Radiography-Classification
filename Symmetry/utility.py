@@ -1,5 +1,9 @@
+from copy import deepcopy
+import os
 import numpy as np
 import cv2
+import config
+from sklearn.preprocessing import StandardScaler
 
 def get_symmetry_line(img):
     assert img.ndim == 2, "Image should be grayscale"
@@ -147,7 +151,6 @@ def remove_blobs(ribs):
             
     return ret_img;
 
-
 def remove_blobs_spine(ribs):
     kernel = np.ones((5,5), dtype=np.uint8);
     kernel_c = np.ones((41,41), dtype=np.uint8);
@@ -172,3 +175,90 @@ def remove_blobs_spine(ribs):
             ret_img = cv2.fillPoly(ret_img, [cvh], (255,255,255));
 
     return ret_img;
+
+def find_data_mean(images):
+    all_images = [];
+    for i in images:
+        file_name = os.path.basename(i);
+        file_name = file_name[:file_name.rfind('.')];
+        mask_full = cv2.imread(os.path.join('C:\\Users\\Admin\\OneDrive - University of Guelph\\Miscellaneous\\Full radiograph segmentation\\labels\\', f'{file_name}_0.png'), cv2.IMREAD_GRAYSCALE);
+        mask_full = cv2.resize(mask_full,(config.IMAGE_SIZE, config.IMAGE_SIZE));
+        mask_full = np.where(mask_full > 0, 1, 0);
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        radiograph_image = (cv2.resize(cv2.imread(i,cv2.IMREAD_GRAYSCALE), (config.IMAGE_SIZE, config.IMAGE_SIZE)) * mask_full).astype("uint8");
+        radiograph_image = clahe.apply(radiograph_image);
+        all_images.append(radiograph_image);
+    all_images = np.array(all_images);
+    s = StandardScaler();
+    s.fit(all_images.reshape(-1,config.IMAGE_SIZE**2));
+    mean = s.mean_.reshape(config.IMAGE_SIZE, config.IMAGE_SIZE);
+    
+    var = s.var_.reshape(config.IMAGE_SIZE, config.IMAGE_SIZE);
+    # for img in all_images:
+    #     img = s.transform(img.reshape(-1,config.IMAGE_SIZE**2));
+    #     print(np.max(img));
+    #     print(np.min(img));
+
+    # test = deepcopy(all_images[0]);
+    # test = s.transform(test.reshape(-1,config.IMAGE_SIZE**2));
+
+    # test2 = deepcopy(all_images[0]);
+    # test2 = (test2 - mean)/(np.sqrt(var)+1e-6);
+
+    # diff = np.sum(np.subtract(test,test2));
+    # s = np.std(all_images,axis = 0) + 1e-6;
+    return mean,np.sqrt(var)+1e-6;
+
+def obscured_elipse(img, left, right):
+    left = cv2.resize(left, (img.shape[1], img.shape[0]));
+    contours = cv2.findContours(left, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[0];
+    max_area = 0;
+    max_cnt = None;
+    for c in contours:
+        area = cv2.contourArea(c);
+        if area > max_area:
+            max_area = area;
+            max_cnt = c;
+    
+    elip = cv2.fitEllipse(max_cnt);
+    
+    tmp = np.zeros_like(left);
+    tmp = cv2.ellipse(tmp,center= (int(elip[0][0]), int(elip[0][1])),axes=(int(elip[1][0]/3), int(elip[1][1]/4)), angle=int(elip[2]), startAngle=0, endAngle=360, color = (255,255,255), thickness=-1);
+
+    tmp = np.where(tmp>0, 0, 1);
+    img = tmp*img;
+
+    right = cv2.resize(right, (img.shape[1], img.shape[0]));
+    contours = cv2.findContours(right, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[0];
+    max_area = 0;
+    max_cnt = None;
+    for c in contours:
+        area = cv2.contourArea(c);
+        if area > max_area:
+            max_area = area;
+            max_cnt = c;
+    
+    elip = cv2.fitEllipse(max_cnt);
+    tmp = np.zeros_like(right);
+    tmp = cv2.ellipse(tmp,center= (int(elip[0][0]), int(elip[0][1])),axes=(int(elip[1][0]/3), int(elip[1][1]/4)), angle=int(elip[2]), startAngle=0, endAngle=360, color = (255,255,255), thickness=-1);
+    
+    tmp = np.where(tmp>0, 0, 1);
+    img = tmp*img;
+    img = cv2.resize(img.astype("uint8"), (512,512));
+    return img;
+
+def get_max_contour(mask):
+    contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE);
+    
+    if len(contours) == 0:
+        return 0, 0;
+
+    max_cnt = 0;
+    max_area = 0;
+    for c in contours:
+        a = cv2.contourArea(c);
+        if a > max_area:
+            max_area = a;
+            max_cnt = c;
+    
+    return max_cnt, max_area;

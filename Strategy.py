@@ -1,146 +1,459 @@
-import math
-from re import S
-from numpy.core.numeric import ones_like
+#===============================================================
+#===============================================================
+from copy import deepcopy
+from shutil import copy
 import torch
 import torch.nn as nn
-import numpy as np
-from torch.utils.data import DataLoader
-from sklearn.metrics import pairwise_distances
-import matplotlib.pyplot as plt
-import pdb
-from scipy import stats
-from torch.utils.data.dataset import Dataset
-from config import BATCH_SIZE, DEVICE, NUM_WORKERS
-from NetworkDataset import *
-from torch import linalg as la
+from torchvision import models
+import torch.nn.functional as F
+import config
 
-class Strategy:
-    def __init__(self, X, Y, transforms, train_valid_raio = 0.8):
-        self._selected_indices = np.zeros(len(X), dtype=bool);
-        self._X = np.array(X);
-        self._Y = np.array(Y);
-        self._transforms = transforms;
-        self._train_valid_split_ratio = train_valid_raio;
-        pass
+from monai.networks.nets.unet import UNet
+#===============================================================
+#===============================================================
 
-    def query(self, n, model):
-        pass
+#---------------------------------------------------------------
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride) -> None:
+        super().__init__();
+        self.net = nn.Sequential(
+            nn.Conv3d(in_channels, out_channels, kernel_size, stride, bias=False, padding=kernel_size//2),
+            nn.BatchNorm3d(out_channels),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+    def forward(self, x):
+        return self.net(x);
+#---------------------------------------------------------------
 
-    def get_random_initial_data(self, n):
-        cnt = 0;
-        indices = [];
-        while cnt!= n:
-            r = np.random.randint(0, len(self._X));
-            while r in indices:
-                r = np.random.randint(0, len(self._X));
-            indices.append(r);
-            cnt+=1;
+#---------------------------------------------------------------
+class Upsample(nn.Module):
+    def __init__(self, in_features, out_features, kernel_size, type) -> None:
+        super().__init__();
+
+        if type == 'convtrans':
+            self.net = nn.ConvTranspose3d(in_channels=in_features, out_channels=out_features, kernel_size=kernel_size, stride=2, padding=1);
+        else:
+            self.net = nn.Sequential(
+                nn.Upsample(mode='bilinear', scale_factor=2),
+                nn.Conv3d(in_channels=in_features, out_channels=out_features, kernel_size=kernel_size, stride=1)
+            )
         
-        self._selected_indices[indices] = True;
-        return self._X[self._selected_indices], self._Y[self._selected_indices]
+        self.conv_after = nn.Sequential(
+            ConvBlock(in_channels=out_features, out_channels=out_features, kernel_size=3, stride=1),
+            ConvBlock(in_channels=out_features, out_channels=out_features, kernel_size=3, stride=1))
     
-    def get_total_selected_data(self):
-        return np.sum(self._selected_indices);
+    def forward(self, x):
+        x = self.net(x);
+        x = self.conv_after(x);
+        return x;
+#---------------------------------------------------------------
+
+#---------------------------------------------------------------
+class Upblock(nn.Module):
+    def __init__(self, in_features, out_features, concat_features = None) -> None:
+        super().__init__();
+        if concat_features == None:
+            concat_features = out_features*2;
+
+        self.upsample = Upsample(in_features, out_features, 4, 'convtrans');
+        self.conv1 = ConvBlock(in_channels=concat_features, out_channels=out_features, kernel_size=3, stride=1);
+        self.conv2 = ConvBlock(in_channels=out_features, out_channels=out_features, kernel_size=3, stride=1);
+
+    def forward(self, x1, x2):
+        x1 = self.upsample(x1);
+        ct = torch.cat([x1,x2], dim=1);
+        ct = self.conv1(ct);
+        out = self.conv2(ct);
+        return out;
+#---------------------------------------------------------------
+
+class CrossAttention(nn.Module):
+    def __init__(self, channel) -> None:
+        super().__init__();
+        self.channels = channel;
+        self.ca = nn.MultiheadAttention(channel, 4, batch_first=True);
+        self.ln = nn.LayerNorm([self.channels]);
+        self.ff_self = nn.Sequential(
+            nn.LayerNorm([channel]),
+            nn.Linear(channel, channel),
+            nn.GELU(),
+            nn.Linear(channel, channel)
+        )
     
-    def train_valid_split(self, model, X, Y, loss_fn):
-        model.train();
-        loader = DataLoader(NetworkDataset(X, Y, self._transforms), batch_size = 1, shuffle= True, num_workers=NUM_WORKERS);
-        embeddings = np.zeros((len(X), model.get_num_weight_parameters()), dtype=np.float);
-        with torch.enable_grad():
-            for x,y,idx in loader:
-                x,y  = x.to(DEVICE), y.to(DEVICE);
-                cout, out = model(x);
-                loss = loss_fn(cout, y.float());
-                loss.backward();
-                grads = [];
-                for name, W in model.named_parameters():
-                    if 'weight' in name:
-                        grads.append(la.norm(W.grad.view(-1), dim = 0, ord= 2).item());
-                embeddings[idx] = grads;
-                model.zero_grad();
+    def get_pos_embedding(self, tokens, channels):
+        pe = torch.zeros((1,tokens, channels) , device= config.DEVICE, requires_grad=False);
+        inv_freq_even = 1.0/((10000)**(torch.arange(0,channels,2) / channels));
+        inv_freq_odd = 1.0/((10000)**(torch.arange(1,channels,2) / channels));
+        pe[:,:,0::2] = torch.sin(torch.arange(0,tokens).unsqueeze(dim=1) * inv_freq_even.unsqueeze(dim=0));
+        pe[:,:,1::2] = torch.cos(torch.arange(0,tokens).unsqueeze(dim=1) * inv_freq_odd.unsqueeze(dim=0));
+        return pe;
+
+    def forward(self, x1, x2):
+        B,C,W,H,D = x1.shape;
         
-        selected_indices = self.get_cluster_centers(embeddings, math.floor(self._train_valid_split_ratio * len(X)), None);
-        total_indices = np.zeros(len(X), dtype=bool);
-        total_indices[selected_indices] = True;
-        X_train= X[total_indices];
-        X_valid = X[~total_indices];
-        Y_train=  Y[total_indices];
-        Y_valid = Y[~total_indices];
-        return X_train, X_valid, Y_train, Y_valid;
+        x1 = x1.view(B, C, W*H*D).swapaxes(1,2);
+        x2 = x2.view(B, C, W*H*D).swapaxes(1,2);
+
+        x1 = self.get_pos_embedding(W*H*D, C) + x1;
+        x2 = self.get_pos_embedding(W*H*D, C) + x2;
+
+        x1_ln = self.ln(x1);
+        x2_ln = self.ln(x2);
+
+        attntion_value, _ = self.ca(x1_ln, x1_ln, x2_ln);
+
+        attntion_value = self.ff_self(attntion_value) + attntion_value;
+        return attntion_value.swapaxes(2,1).view(B,C,W,H,D);
+
+#---------------------------------------------------------------
+class ResUnet3D(nn.Module):
+    def __init__(self) -> None:
+        super().__init__();
+        resnet = resnet50();
+        ckpt = torch.load('resnet_50.pth')['state_dict'];
+        modified_keys = {};
+        for k in ckpt.keys():
+            new_k = k.replace('module.','');
+            modified_keys[new_k] = ckpt[k];
+        resnet.load_state_dict(modified_keys, strict=False);
+        self.input_blocks = ConvBlock(1,64,3,2);
+        self.input_pool = list(resnet.children())[3];
+        self.down_blocks = nn.ModuleList();
+        for btlnck in list(resnet.children()):
+            if isinstance(btlnck, nn.Sequential):
+                self.down_blocks.append(btlnck);
+
+        self.bottle_neck = nn.Sequential(
+            ConvBlock(2048, 2048, 3, 1),
+            ConvBlock(2048, 2048, 3, 1)
+        );
+
+        self.inp_conv = ConvBlock(1, 64, 3, 1);
+
+        self.up_1 = Upblock(2048,1024);
+        self.up_2 = Upblock(1024,512);
+        self.up_3 = Upblock(512,256);
+        self.up_4 = Upblock(256, 128, 128+64)
+        self.up_5 = Upblock(128, 64, 128);
+
+        self.feature_selection_modules = nn.ModuleList();
+        self.feature_refinement_modules = nn.ModuleList();
+        self.feature_attention_modules = nn.ModuleList();
+
+        feats = [2048,1024,512,256,64,64];
+        for f in feats:
+            layers = self._make_squeeze_excitation(f);
+            self.feature_selection_modules.append(layers[0]);
+            self.feature_refinement_modules.append(layers[1]);
+            self.feature_attention_modules.append(layers[2]);
+
+        self.final = nn.Sequential(
+            ConvBlock(64,1,1,1),
+            nn.Tanh()
+        )
+
+
+        self.__initial_weights = deepcopy(self.state_dict());
     
-    def get_cluster_centers(self, X, K, data):
-        ind = np.argmax([np.linalg.norm(s, 2) for s in X])
-        mu = [X[ind]]
-        indsAll = [ind]
-        centInds = [0.] * len(X)
-        cent = 0
-        while len(mu) < K:
-            if len(mu) == 1:
-                D2 = pairwise_distances(X, mu).ravel().astype(float)
-            else:
-                newD = pairwise_distances(X, [mu[-1]]).ravel().astype(float)
-                for i in range(len(X)):
-                    if D2[i] >  newD[i]:
-                        centInds[i] = cent
-                        D2[i] = newD[i]
-            if sum(D2) == 0.0: pdb.set_trace()
-            D2 = D2.ravel().astype(float)
-            Ddist = (D2 ** 2)/ sum(D2 ** 2)
-            customDist = stats.rv_discrete(name='custm', values=(np.arange(len(D2)), Ddist))
-            ind = customDist.rvs(size=1)[0]
-            while ind in indsAll: ind = customDist.rvs(size=1)[0]
-            mu.append(X[ind])
-            indsAll.append(ind)
-            cent += 1
+    def _make_squeeze_excitation(self, feature_size):
+        feature_selection = nn.Sequential(
+            ConvBlock(feature_size*2, feature_size, 1, 1),
+        )
+        refinement = nn.Sequential(
+            ConvBlock(feature_size, feature_size, 3, 1),
+            ConvBlock(feature_size, feature_size, 3, 1),
+        )
+        atten = nn.Sequential(
+            nn.AdaptiveAvgPool3d(1),
+            nn.Sigmoid()
+        )
 
-        return indsAll
-    
-class BadgeStrategy(Strategy):
-    def __init__(self, X, Y, transforms):
-        super().__init__(X, Y, transforms);
+        return feature_selection, refinement, atten;
 
-    def query(self, n, model):
-        idx_unlabeled = np.arange(len(self._X), )[~self._selected_indices];
-        grad_embeddings = self.get_grad_embeddings(idx_unlabeled, model);
-        new_indices = self.get_cluster_centers(grad_embeddings, n, self._X[idx_unlabeled])
-        self._selected_indices[new_indices] = True;
-        return self._X[self._selected_indices], self._Y[self._selected_indices];
+    def down_stream(self, inp):
+        inp_feat = self.inp_conv(inp);
+        d_1 = self.input_blocks(inp);
 
-    def get_grad_embeddings(self, idx_unlabeled, model):
-        model.eval();
-        embed_dim = model.get_embedd_dim();
-        embeddings = np.zeros((len(idx_unlabeled), embed_dim));
-        loader = DataLoader(NetworkDataset(self._X[idx_unlabeled], self._Y[idx_unlabeled], self._transforms), batch_size= BATCH_SIZE, shuffle= True, num_workers= NUM_WORKERS);
-        with torch.no_grad():
-            for x , y, idxs in loader:
-                x,y  = x.to(DEVICE), y.to(DEVICE);
-                cout, out = model(x);
-                out = out.data.cpu().numpy()
-                batchProbs = torch.sigmoid(cout).cpu().numpy();
-                cls = batchProbs > 0.5;
-                cls = np.where(cls==0, -1, cls);
-                for j in range(len(y)):
-                    embedd = (1-batchProbs[j]) * cls[j]*out[j];
-                    embedd = np.sum(embedd, axis=(1,2), keepdims=False);
-                    embeddings[idxs[j]] = embedd;
+        d_2 = self.down_blocks[0](d_1);
+        d_2 = self.input_pool(d_2);
+        d_3 = self.down_blocks[1](d_2);
+        d_4 = self.down_blocks[2](d_3);
+        d_5 = self.down_blocks[3](d_4);
+
+        d_5 = self.bottle_neck(d_5);
+        return d_5, d_4, d_3, d_2, d_1, inp_feat;
+
+    def squeeze_excitation_block(self, inp1, inp2, idx):
+        d = torch.concat([inp1, inp2], dim=1);
+        d_selection = self.feature_selection_modules[idx](d);
+        d_refine = self.feature_refinement_modules[idx](d_selection);
+        d_attn = self.feature_attention_modules[idx](d_refine);
+        d_refine = d_refine * d_attn;
+        return F.leaky_relu(d_refine + d_selection, 0.2, inplace=True);
+
+    def forward(self, inp1, inp2):
         
-        return embeddings;
+        inp1_d5, inp1_d4, inp1_d3, inp1_d2, inp1_d1, inp_feat_1 = self.down_stream(inp1);
+        inp2_d5, inp2_d4, inp2_d3, inp2_d2, inp2_d1, inp_feat_2 = self.down_stream(inp2);
 
-class RandomSampling(Strategy):
-    def __init__(self, X, Y, transforms, train_valid_raio=0.8):
-        super().__init__(X, Y, transforms, train_valid_raio);
+        d_5 = self.squeeze_excitation_block(inp1_d5, inp2_d5, 0);
+        d_4 = self.squeeze_excitation_block(inp1_d4, inp2_d4, 1);
+        d_3 = self.squeeze_excitation_block(inp1_d3, inp2_d3, 2);
+        d_2 = self.squeeze_excitation_block(inp1_d2, inp2_d2, 3);
+        d_1 = self.squeeze_excitation_block(inp1_d1, inp2_d1, 4);
+        inp_feat = self.squeeze_excitation_block(inp_feat_1, inp_feat_2, 5);
     
-    def query(self, n, model):
-        cnt = 0;
-        indices = [];
-        while cnt!= n:
-            r = np.random.randint(0, len(self._X));
-            #while number is selcted now or before
-            while r in indices or self._selected_indices[r] is True:
-                r = np.random.randint(0, len(self._X));
-            indices.append(r);
-            cnt+=1;
+        u_1 = self.up_1(d_5, d_4);
+        u_2 = self.up_2(u_1, d_3);
+        u_3 = self.up_3(u_2, d_2);
+        u_4 = self.up_4(u_3, d_1);
+        u_5 = self.up_5(u_4, inp_feat);
+
+        out = self.final(u_5);
+
+        return out;
+#---------------------------------------------------------------
+
+class Unet3D(nn.Module):
+    def __init__(self) -> None:
+        super().__init__();
+        resnet = resnet50();
+        ckpt = torch.load('resnet_50.pth')['state_dict'];
+        modified_keys = {};
+        for k in ckpt.keys():
+            new_k = k.replace('module.','');
+            modified_keys[new_k] = ckpt[k];
+        resnet.load_state_dict(modified_keys, strict=False);
+        self.input_blocks = ConvBlock(1,64,3,2);
+        self.input_pool = list(resnet.children())[3];
+        self.down_blocks = nn.ModuleList();
+        for btlnck in list(resnet.children()):
+            if isinstance(btlnck, nn.Sequential):
+                self.down_blocks.append(btlnck);
+
+        self.bottle_neck = nn.Sequential(
+            ConvBlock(2048, 2048, 3, 1),
+            ConvBlock(2048, 2048, 3, 1)
+        );
+
+        self.inp_conv = ConvBlock(1, 64, 3, 1);
+
+        self.up_1 = Upblock(2048,1024);
+        self.up_2 = Upblock(1024,512);
+        self.up_3 = Upblock(512,256);
+        self.up_4 = Upblock(256, 128, 128+64)
+        self.up_5 = Upblock(128, 64, 128);
+
+        self.feature_selection_modules = nn.ModuleList();
+        self.feature_refinement_modules = nn.ModuleList();
+        self.feature_attention_modules = nn.ModuleList();
+
+        feats = [2048,1024,512,256,64,64];
+        for f in feats:
+            layers = self._make_squeeze_excitation(f);
+            self.feature_selection_modules.append(layers[0]);
+            self.feature_refinement_modules.append(layers[1]);
+            self.feature_attention_modules.append(layers[2]);
+
+        self.final = nn.Sequential(
+            ConvBlock(64,1,1,1),
+            nn.Tanh()
+        )
+
+
+        self.__initial_weights = deepcopy(self.state_dict());
+    
+    def _make_squeeze_excitation(self, feature_size):
+        feature_selection = nn.Sequential(
+            ConvBlock(feature_size*2, feature_size, 1, 1),
+        )
+        refinement = nn.Sequential(
+            ConvBlock(feature_size, feature_size, 3, 1),
+            ConvBlock(feature_size, feature_size, 3, 1),
+        )
+        atten = nn.Sequential(
+            nn.Sigmoid()
+        )
+
+        return feature_selection, refinement, atten;
+
+    def down_stream(self, inp):
+        inp_feat = self.inp_conv(inp);
+        d_1 = self.input_blocks(inp);
+
+        d_2 = self.down_blocks[0](d_1);
+        d_2 = self.input_pool(d_2);
+        d_3 = self.down_blocks[1](d_2);
+        d_4 = self.down_blocks[2](d_3);
+        d_5 = self.down_blocks[3](d_4);
+
+        d_5 = self.bottle_neck(d_5);
+        return d_5, d_4, d_3, d_2, d_1, inp_feat;
+
+    def squeeze_excitation_block(self, inp1, inp2, idx):
+        d = torch.concat([inp1, inp2], dim=1);
+        d_selection = self.feature_selection_modules[idx](d);
+        d_refine = self.feature_refinement_modules[idx](d_selection);
+        d_attn = self.feature_attention_modules[idx](d_refine);
+        d_refine = d_refine * d_attn;
+        return F.leaky_relu(d_refine + d_selection, 0.2, inplace=True);
+
+    def forward(self, inp1, inp2):
         
-        self._selected_indices[indices] = True;
-        return self._X[self._selected_indices], self._Y[self._selected_indices]
+        inp1_d5, inp1_d4, inp1_d3, inp1_d2, inp1_d1, inp_feat_1 = self.down_stream(inp1);
+        inp2_d5, inp2_d4, inp2_d3, inp2_d2, inp2_d1, inp_feat_2 = self.down_stream(inp2);
+
+        d_5 = self.squeeze_excitation_block(inp1_d5, inp2_d5, 0);
+        d_4 = self.squeeze_excitation_block(inp1_d4, inp2_d4, 1);
+        d_3 = self.squeeze_excitation_block(inp1_d3, inp2_d3, 2);
+        d_2 = self.squeeze_excitation_block(inp1_d2, inp2_d2, 3);
+        d_1 = self.squeeze_excitation_block(inp1_d1, inp2_d1, 4);
+        inp_feat = self.squeeze_excitation_block(inp_feat_1, inp_feat_2, 5);
     
+        u_1 = self.up_1(d_5, d_4);
+        u_2 = self.up_2(u_1, d_3);
+        u_3 = self.up_3(u_2, d_2);
+        u_4 = self.up_4(u_3, d_1);
+        u_5 = self.up_5(u_4, inp_feat);
+
+        out = self.final(u_5);
+
+        return out;
+
+class AttenUnet3D(nn.Module):
+    def __init__(self) -> None:
+        super().__init__();
+        resnet = resnet50();
+        ckpt = torch.load('resnet_50.pth')['state_dict'];
+        modified_keys = {};
+        for k in ckpt.keys():
+            new_k = k.replace('module.','');
+            modified_keys[new_k] = ckpt[k];
+        resnet.load_state_dict(modified_keys, strict=False);
+        self.input_blocks = ConvBlock(1,64,3,2);
+        self.input_pool = list(resnet.children())[3];
+        self.down_blocks = nn.ModuleList();
+        for btlnck in list(resnet.children()):
+            if isinstance(btlnck, nn.Sequential):
+                self.down_blocks.append(btlnck);
+
+        self.bottle_neck = nn.Sequential(
+            ConvBlock(2048, 2048, 3, 1),
+            ConvBlock(2048, 2048, 3, 1)
+        );
+
+        self.inp_conv = ConvBlock(1, 64, 3, 1);
+
+        self.up_1 = Upblock(2048,1024);
+        self.up_2 = Upblock(1024,512);
+        self.up_3 = Upblock(512,256);
+        self.up_4 = Upblock(256, 128, 128+64)
+        self.up_5 = Upblock(128, 64, 128);
+
+        self.ca5 = CrossAttention(2048);
+        self.ca4 = CrossAttention(1024);
+        self.ca3 = CrossAttention(512);
+        self.ca2 = CrossAttention(256);
+        self.ca1 = CrossAttention(64);
+
+
+        self.feature_selection_modules = nn.ModuleList();
+        self.feature_refinement_modules = nn.ModuleList();
+        self.feature_attention_modules = nn.ModuleList();
+
+        feats = [2048,1024,512,256,64,64];
+        for f in feats:
+            layers = self._make_squeeze_excitation(f);
+            self.feature_selection_modules.append(layers[0]);
+            self.feature_refinement_modules.append(layers[1]);
+            self.feature_attention_modules.append(layers[2]);
+
+        self.final = nn.Sequential(
+            ConvBlock(64,1,1,1),
+            nn.Tanh()
+        )
+
+
+        self.__initial_weights = deepcopy(self.state_dict());
+    
+    def _make_squeeze_excitation(self, feature_size):
+        feature_selection = nn.Sequential(
+            ConvBlock(feature_size*2, feature_size, 1, 1),
+        )
+        refinement = nn.Sequential(
+            ConvBlock(feature_size, feature_size, 3, 1),
+            ConvBlock(feature_size, feature_size, 3, 1),
+        )
+        atten = nn.Sequential(
+            nn.AdaptiveAvgPool3d(1),
+            nn.Sigmoid()
+        )
+
+        return feature_selection, refinement, atten;
+
+    def down_stream(self, inp):
+        inp_feat = self.inp_conv(inp);
+        d_1 = self.input_blocks(inp);
+
+        d_2 = self.down_blocks[0](d_1);
+        d_2 = self.input_pool(d_2);
+        d_3 = self.down_blocks[1](d_2);
+        d_4 = self.down_blocks[2](d_3);
+        d_5 = self.down_blocks[3](d_4);
+
+        d_5 = self.bottle_neck(d_5);
+        return d_5, d_4, d_3, d_2, d_1, inp_feat;
+
+    def squeeze_excitation_block(self, inp1, inp2, idx):
+        d = torch.concat([inp1, inp2], dim=1);
+        d_selection = self.feature_selection_modules[idx](d);
+        d_refine = self.feature_refinement_modules[idx](d_selection);
+        d_attn = self.feature_attention_modules[idx](d_refine);
+        d_refine = d_refine * d_attn;
+        return F.leaky_relu(d_refine + d_selection, 0.2, inplace=True);
+
+    def forward(self, inp1, inp2):
+        
+        inp1_d5, inp1_d4, inp1_d3, inp1_d2, inp1_d1, inp_feat_1 = self.down_stream(inp1);
+        inp2_d5, inp2_d4, inp2_d3, inp2_d2, inp2_d1, inp_feat_2 = self.down_stream(inp2);
+
+        d_5 = self.ca5(inp1_d5, inp2_d5);
+        d_4 = self.ca4(inp1_d4, inp2_d4);
+        d_3 = self.ca3(inp1_d3, inp2_d3);
+        d_2 = self.ca2(inp1_d2, inp2_d2);
+        d_1 = self.squeeze_excitation_block(inp1_d1, inp2_d1, 4);
+        inp_feat = self.squeeze_excitation_block(inp_feat_1, inp_feat_2, 5);
+    
+        u_1 = self.up_1(d_5, d_4);
+        u_2 = self.up_2(u_1, d_3);
+        u_3 = self.up_3(u_2, d_2);
+        u_4 = self.up_4(u_3, d_1);
+        u_5 = self.up_5(u_4, inp_feat);
+
+        out = self.final(u_5);
+
+        return out;
+#---------------------------------------------------------------
+
+#---------------------------------------------------------------
+def test():
+
+    sample = torch.rand((1,1,64,64,64)).to('cuda');
+
+    net = UNet(
+        spatial_dims=3,
+        in_channels=1,
+        out_channels=3,
+        channels=(16, 32, 64, 128, 256),
+        strides=(2, 2, 2, 2),
+        num_res_units=2,
+        ).to('cuda')
+
+    out = net(sample);
+    print(out.size());
+#---------------------------------------------------------------
+
+#---------------------------------------------------------------
+if __name__ == "__main__":
+    test();
+#---------------------------------------------------------------

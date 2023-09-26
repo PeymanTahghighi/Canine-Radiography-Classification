@@ -9,6 +9,7 @@ class StoppingStrategy():
     def reset(self):
         pass
 
+
 class GeneralizationLoss(StoppingStrategy):
     def __init__(self, alpha) -> None:
         super().__init__(alpha);

@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.functional as F
 from torch.nn.functional import one_hot, binary_cross_entropy_with_logits, cross_entropy
 import config
+
 #===============================================================
 #===============================================================
 
@@ -13,16 +14,21 @@ def dice_loss(logits,
                 true, 
                 eps=1e-7, 
                 sigmoid = False,
-                multilabel = False,
-                arange_logits = False):
+                multilabel = False):
 
     if sigmoid is True:
         logits = torch.sigmoid(logits);
-    
-    if arange_logits is True:
-        logits = logits.permute(0,2,3,1);
+        if multilabel is False:
+            dims = (1,2);
+        else:
+            dims = (2,3);
+    else:
+        logits = logits.permute(0,2,3,1); 
+        logits = torch.softmax(logits, dim = 3);
+        true = one_hot(true.long(), 3);
+        dims = (1, 2, 3);
 
-    dims = (1,2,3);
+        
 
     intersection = torch.sum(true * logits, dims);
     union = torch.sum(true + logits, dims);
