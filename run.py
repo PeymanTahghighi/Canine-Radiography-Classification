@@ -1233,22 +1233,14 @@ if __name__ == "__main__":
 
     #optimize_cranial_model(folds, root_dataframe, rebuild_features=True);
     #optimize_caudal_model(folds, root_dataframe, rebuild_features=True);
-    #optimize_sp_model(folds, root_dataframe, rebuild_features = False);
+    optimize_sp_model(folds, root_dataframe, rebuild_features = False);
 
     #exposure_results();
     #positioning_results();
     #inclusion_results(root_dataframe);
     #overal_results();
-#
-    #spine_and_ribs_segmentation_model = UNETR(3, 3, config.IMAGE_SIZE, spatial_dims=2).to(config.DEVICE);
-    #spine_and_ribs_segmentation_model = UNETRC(3, config.IMAGE_SIZE,16, 768, 12, 0, 4, 3).to(config.DEVICE);
-    #spine_and_ribs_segmentation_model = SwinUNETRC(3, 512, 2, 0.25, 3, depths=(2, 2, 18, 2), num_heads=(6, 12, 24, 48), feature_size=192).to(config.DEVICE);
-    #spine_and_ribs_segmentation_model = SwinUNETR(img_size=512, in_channels=3, out_channels=3, spatial_dims=2).to(config.DEVICE);
+
     modified_dict = dict();
-    # state_dict = pickle.load(open(f'ckpt.pt', 'rb'));
-    # for s in state_dict:
-    #     if 'encoder' in s:
-    #         modified_dict[s[8:]] = state_dict[s];
     
     spine_and_ribs_segmentation_model = Unet(3).to(config.DEVICE);
     diaphragm_segmentation_model = Unet(1).to(config.DEVICE);
@@ -1256,6 +1248,7 @@ if __name__ == "__main__":
     spinous_process_segmentation_model = Unet(1).to(config.DEVICE);
     heart_model = Unet(1).to(config.DEVICE);
     full_body_model = Unet(1).to(config.DEVICE);
+    sp_model = Unet(1).to(config.DEVICE);
     multimodel = Unet(3).to(config.DEVICE);
 
     total_cranial = [];
@@ -1265,7 +1258,6 @@ if __name__ == "__main__":
     total_quality = [];
     total_tips= [];
 
-    
     start_fold = 0;
 
     parameters =  Parameters({'epochs':[1,2]}, 5);
@@ -1276,83 +1268,68 @@ if __name__ == "__main__":
 
     tune_results = [];
 
-    for param in parameters:
-        print(f'optimizing hyperparameters with:\n{param}');
-        parameters.save_checkpoint();
-        cur_exp_results = [];
-        for idx in range(2,len(folds)):
+    if config.TRAIN is True:
+        for param in parameters:
+            print(f'optimizing hyperparameters with:\n{param}');
+            parameters.save_checkpoint();
+            cur_exp_results = [];
+            for idx in range(0,len(folds)):
+                train_imgs,train_mask, test_imgs, test_mask,= folds[idx][0], folds[idx][1], folds[idx][2], folds[idx][3];
+                train_mask = np.array(train_mask);
+                test_mask = np.array(test_mask);
+
+                print(f'\n================= Starting fold {idx} =================\n');
+                                
+                # multimodel.load_state_dict(torch.load((f'results\\{idx}\\multimodel.ckpt'))['model'], strict=False)
+                # multimodel.eval();
+                diaphragm_segmentation_model.load_state_dict(torch.load((f'results\\{idx}\\Diaphragm.ckpt'))['model'], strict=False)
+                spine_and_ribs_segmentation_model.load_state_dict(torch.load((f'results\\{idx}\\spineandribs.ckpt'))['model'], strict=False)
+                heart_model.load_state_dict(torch.load((f'results\\{idx}\\heart.ckpt'))['model'], strict=False)
+                sp_model.load_state_dict(torch.load((f'results\\{idx}\\spinousprocess.ckpt'))['model'], strict=False)
+                store_results(idx, [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, heart_model, sp_model], test_imgs);
+
+                
+                #(2-1)
+                # print('------------- Training Diaphragm ---------------\n');
+                # train_mask = np.take_along_axis(train_mask, np.repeat(np.array([[0,1,4,5]]),repeats=train_mask.shape[0], axis=0) , axis=1);
+                # test_mask = np.take_along_axis(test_mask, np.repeat(np.array([[0,1,4,5]]),repeats=test_mask.shape[0], axis=0) , axis=1);
+                # valid_f1 = train('heart', 5, multimodel, idx, train_imgs, train_mask, 
+                # test_imgs, test_mask, ckpt if config.RESUME else None, param, multilabel=True);
+                # parameters.add_results(valid_f1, idx);
+
+                
+                
+                #(2-2)
+                # print('------------- Training Diaphragm ---------------\n');
+                # diaphragm_segmentation_model = newtwork_trainer.train('Diaphragm', 1, diaphragm_segmentation_model, idx,
+                # train_imgs, train_mask[:,1], test_imgs, test_mask[:,1], load_trained_model=True);
+
+                # #(2-3)
+                # print('------------- Training Sternum ---------------\n');
+                # sternum_segmentation_model = newtwork_trainer.train('Sternum', 1, sternum_segmentation_model, 
+                # idx,  train_imgs, train_mask[:,2], test_imgs, test_mask[:,2], load_trained_model=False, exposure_labels=train_grain_lbl[:,-1]);
+
+                # #(2-3)
+                # print('------------- Training Spinous process ---------------\n');
+                # spinous_process_segmentation_model = newtwork_trainer.train('Spinous process', 1, spinous_process_segmentation_model, 
+                # idx,  train_imgs, train_mask[:,3], test_imgs, test_mask[:,3], load_trained_model=True);
+
+        
+        parameters.get_final_results();
+
+    else:
+        
+        for idx in range(4,5):
             train_imgs,train_mask, test_imgs, test_mask,= folds[idx][0], folds[idx][1], folds[idx][2], folds[idx][3];
             train_mask = np.array(train_mask);
             test_mask = np.array(test_mask);
 
-            print(f'\n================= Starting fold {idx} =================\n');
-                            
-            # multimodel.load_state_dict(torch.load((f'results\\{idx}\\multimodel.ckpt'))['model'], strict=False)
-            # multimodel.eval();
+            print(f'\n================= Saving results for fold {idx} =================\n');
+
             diaphragm_segmentation_model.load_state_dict(torch.load((f'results\\{idx}\\Diaphragm.ckpt'))['model'], strict=False)
             spine_and_ribs_segmentation_model.load_state_dict(torch.load((f'results\\{idx}\\spineandribs.ckpt'))['model'], strict=False)
             heart_model.load_state_dict(torch.load((f'results\\{idx}\\heart.ckpt'))['model'], strict=False)
-            #full_body_model.load_state_dict(torch.load((f'results\\{idx}\\fullbody.ckpt'))['model'], strict=False)
-            store_results(idx, [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, heart_model], test_imgs);
+            sp_model.load_state_dict(torch.load((f'results\\{idx}\\spinousprocess.ckpt'))['model'], strict=False)
+            store_results(idx, [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, heart_model, sp_model], test_imgs);
 
-            
-            #(2-1)
-            # print('------------- Training Diaphragm ---------------\n');
-            # train_mask = np.take_along_axis(train_mask, np.repeat(np.array([[0,1,4,5]]),repeats=train_mask.shape[0], axis=0) , axis=1);
-            # test_mask = np.take_along_axis(test_mask, np.repeat(np.array([[0,1,4,5]]),repeats=test_mask.shape[0], axis=0) , axis=1);
-            # valid_f1 = train('heart', 5, multimodel, idx, train_imgs, train_mask, 
-            # test_imgs, test_mask, ckpt if config.RESUME else None, param, multilabel=True);
-            # parameters.add_results(valid_f1, idx);
 
-            
-            
-            #(2-2)
-            # print('------------- Training Diaphragm ---------------\n');
-            # diaphragm_segmentation_model = newtwork_trainer.train('Diaphragm', 1, diaphragm_segmentation_model, idx,
-            # train_imgs, train_mask[:,1], test_imgs, test_mask[:,1], load_trained_model=True);
-
-            # #(2-3)
-            # print('------------- Training Sternum ---------------\n');
-            # sternum_segmentation_model = newtwork_trainer.train('Sternum', 1, sternum_segmentation_model, 
-            # idx,  train_imgs, train_mask[:,2], test_imgs, test_mask[:,2], load_trained_model=False, exposure_labels=train_grain_lbl[:,-1]);
-
-            # #(2-3)
-            # print('------------- Training Spinous process ---------------\n');
-            # spinous_process_segmentation_model = newtwork_trainer.train('Spinous process', 1, spinous_process_segmentation_model, 
-            # idx,  train_imgs, train_mask[:,3], test_imgs, test_mask[:,3], load_trained_model=True);
-
-            # cranial_results, caudal_results, tips_results, sternum_results,  quality_results = evaluate_test_data(idx, 
-            # [spine_and_ribs_segmentation_model, diaphragm_segmentation_model, sternum_segmentation_model, spinous_process_segmentation_model], 
-            # [cranial_classification_model, caudal_classification_model, sternum_classification_model, full_classification_model],
-            # test_imgs,
-            # test_grain_lbl,
-            # test_lbl,
-            # None,
-            # use_saved_features=False);
-
-            # # total_cranial.append(cranial_results);
-            # # total_caudal.append(caudal_results);
-            # # total_tips.append(tips_results);
-            # # total_sternum.append(sternum_results);
-            # # total_quality.append(quality_results);
-    
-    parameters.get_final_results();
-    
-    
-    
-
-    
-
-        # total_cranial = np.mean(total_cranial, axis = 0);
-        # total_caudal = np.mean(total_caudal, axis = 0);
-        # total_tips = np.mean(total_tips, axis = 0);
-        # total_sternum = np.mean(total_sternum, axis = 0);
-        # total_quality = np.mean(total_quality, axis = 0);
-
-        
-        # print(('\n'+'%10s'*5)%('Type', 'Precision', 'Recall', 'F1', 'Accuracy'));
-        # print(('\n'+'%10s'*1 + '%10f'*4)%('Cranial', total_cranial[0], total_cranial[1], total_cranial[2], total_cranial[3]));
-        # print(('\n'+'%10s'*1 + '%10f'*4)%('Caudal', total_caudal[0], total_caudal[1], total_caudal[2], total_caudal[3]));
-        # print(('\n'+'%10s'*1 + '%10f'*4)%('Tips', total_tips[0], total_tips[1], total_tips[2], total_tips[3]));
-        # print(('\n'+'%10s'*1 + '%10f'*4)%('Sternum', total_sternum[0], total_sternum[1], total_sternum[2], total_sternum[3]));
-        # print(('\n'+'%10s'*1 + '%10f'*4)%('Quality', total_quality[0], total_quality[1], total_quality[2], total_quality[3]));

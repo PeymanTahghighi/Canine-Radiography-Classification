@@ -23,6 +23,7 @@ VIRTUAL_BATCH_SIZE = 4;
 REBUILD_THORAX = False;
 DEBUG_TRAIN_DATA = False;
 RESUME = False;
+TRAIN = False;
 
 train_transforms = A.Compose(
 [

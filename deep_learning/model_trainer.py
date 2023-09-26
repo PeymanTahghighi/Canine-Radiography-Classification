@@ -111,33 +111,33 @@ def store_results(fold_cnt, segmentation_models, test_imgs):
         radiograph_image = radiograph_image.to(config.DEVICE);
         
         #spine and ribs
-        out = segmentation_models[0](radiograph_image.unsqueeze(dim=0));
-        out = (torch.softmax(out, dim= 1)[0].permute(1,2,0)).detach().cpu().numpy();
-        out = np.argmax(out,axis = 2);
+        # out = segmentation_models[0](radiograph_image.unsqueeze(dim=0));
+        # out = (torch.softmax(out, dim= 1)[0].permute(1,2,0)).detach().cpu().numpy();
+        # out = np.argmax(out,axis = 2);
 
-        ribs = (out == 1).astype("uint8")*255;
-        spine = (out == 2).astype("uint8")*255;
+        # ribs = (out == 1).astype("uint8")*255;
+        # spine = (out == 2).astype("uint8")*255;
 
-        ribs = remove_blobs(ribs);
-        hist_hor, hist_ver = get_histogram(ribs,config.IMAGE_SIZE);
+        # ribs = remove_blobs(ribs);
+        # hist_hor, hist_ver = get_histogram(ribs,config.IMAGE_SIZE);
 
-        spine = remove_blobs_spine(spine).astype("uint8");
-        spine_missing_drawn = draw_missing_spine(spine);
+        # spine = remove_blobs_spine(spine).astype("uint8");
+        # spine_missing_drawn = draw_missing_spine(spine);
         
         # #----------------------------------------------------
 
         # abdomen
-        abdomen_mask = segmentation_models[1](radiograph_image.unsqueeze(dim=0));
-        abdomen_mask = torch.sigmoid(abdomen_mask)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
-        abdomen_mask = abdomen_mask > 0.5;
-        abdomen_mask = (abdomen_mask*255).astype("uint8")
+        # abdomen_mask = segmentation_models[1](radiograph_image.unsqueeze(dim=0));
+        # abdomen_mask = torch.sigmoid(abdomen_mask)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
+        # abdomen_mask = abdomen_mask > 0.5;
+        # abdomen_mask = (abdomen_mask*255).astype("uint8")
         # #----------------------------------------------------
 
         # heart
-        heart_mask = segmentation_models[2](radiograph_image.unsqueeze(dim=0));
-        heart_mask = torch.sigmoid(heart_mask)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
-        heart_mask = heart_mask > 0.5;
-        heart_mask = (heart_mask*255).astype("uint8")
+        # heart_mask = segmentation_models[2](radiograph_image.unsqueeze(dim=0));
+        # heart_mask = torch.sigmoid(heart_mask)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
+        # heart_mask = heart_mask > 0.5;
+        # heart_mask = (heart_mask*255).astype("uint8")
         # #----------------------------------------------------
 
 
@@ -149,11 +149,11 @@ def store_results(fold_cnt, segmentation_models, test_imgs):
         # sternum = postprocess_sternum(sternum);
         # # # #----------------------------------------------------
         
-        ribs_new = remove_outliers_hist_ver(hist_ver, ribs);
-        ribs_new = remove_outliers_hist_hor(hist_hor, ribs_new);
+        #ribs_new = remove_outliers_hist_ver(hist_ver, ribs);
+        #ribs_new = remove_outliers_hist_hor(hist_hor, ribs_new);
 
         #start = datetime.now();
-        whole_thorax = segment_thorax(ribs_new);
+        #whole_thorax = segment_thorax(ribs_new);
         #duration = (datetime.now() - start).microseconds*1e-6;
         #print(f'thorax segmentation took: {duration}')
         #whole_thorax = cv2.imread(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_thorax.png', cv2.IMREAD_GRAYSCALE);
@@ -176,10 +176,10 @@ def store_results(fold_cnt, segmentation_models, test_imgs):
         # # #-----------------------------------------------------
 
         # # # #Sternum
-        spine_smoothed = smooth_boundaries(spine,10);
-        spine_smoothed = smooth_boundaries(spine_smoothed,25);
-        spine_smoothed = draw_missing_spine(spine_smoothed);
-        spine_scaled = scale_width(spine_smoothed,2);
+        # spine_smoothed = smooth_boundaries(spine,10);
+        # spine_smoothed = smooth_boundaries(spine_smoothed,25);
+        # spine_smoothed = draw_missing_spine(spine_smoothed);
+        # spine_scaled = scale_width(spine_smoothed,2);
         # # sternum = np.logical_and(sternum.squeeze(), np.where(whole_thorax>0, 1, 0)).astype(np.uint8);
         # sternum_features = extract_sternum_features(sternum, spine_scaled);
 
@@ -187,24 +187,24 @@ def store_results(fold_cnt, segmentation_models, test_imgs):
         # spine_mask_processed = smooth_boundaries(spine.astype("uint8")*255,10);
         # spine_mask_5 = draw_missing_spine(spine_mask_processed);
         # spine_mask_5 = scale_width(spine_mask_5,10);
-        # spinous_process = segmentation_models[3](radiograph_image.unsqueeze(dim=0));
-        # spinous_process = torch.sigmoid(spinous_process)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
-        # spinous_process = spinous_process > 0.5;
-        # spinous_process = np.uint8(spinous_process);
+        spinous_process = segmentation_models[3](radiograph_image.unsqueeze(dim=0));
+        spinous_process = torch.sigmoid(spinous_process)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
+        spinous_process = spinous_process > 0.5;
+        spinous_process = np.uint8(spinous_process)*255;
 
         # overlap = np.maximum(np.where(spinous_process>0,1,0) - np.where(spine_mask_5>0,1,0), np.zeros_like(spinous_process));
         # sp_features = np.sum(overlap);
 
         # #store results
-        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_spine.png', spine_smoothed);
-        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_spine_orig.png', spine);
-        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_spine_scaled.png', spine_scaled);
-        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_ribs_orig.png', ribs_new);
-        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_diaph.png', abdomen_mask);
-        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_heart.png', heart_mask);
+        #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_spine.png', spine_smoothed);
+        #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_spine_orig.png', spine);
+        #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_spine_scaled.png', spine_scaled);
+        #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_ribs_orig.png', ribs_new);
+        #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_diaph.png', abdomen_mask);
+        #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_heart.png', heart_mask);
         #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_sternum.png', sternum);
-        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_thorax.png', whole_thorax);
-        #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_spinous_prcess.png', spinous_process.astype("uint8")*255);
+        #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_thorax.png', whole_thorax);
+        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_spinous_prcess.png', spinous_process);
         #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_sp_overlap.png', overlap.astype("uint8")*255);
             
     #     else:

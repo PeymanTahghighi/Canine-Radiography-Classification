@@ -603,14 +603,11 @@ def optimize_sp_model(folds, df, rebuild_features = False):
     total_Y = [];
     total_imgs = [];
 
-    reoptimize = False;
+    reoptimize = True;
 
     if rebuild_features is True:
         for idx,f in enumerate(folds):
-            train_imgs,train_mask,train_lbl, train_grain_lbl, cranial_features, \
-                caudal_features, \
-                tips_features,\
-                sternum_features, test_imgs, test_mask, test_lbl, test_grain_lbl = f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9], f[10], f[11];
+            train_imgs,train_mask,test_imgs, test_mask = f[0], f[1], f[2], f[3]
             model_rs = Unet(3);
             model_rs.load_state_dict(pickle.load(open(f'results\\{idx}\\spine and ribs.pt', 'rb')));
             model_rs = model_rs.to(config.DEVICE)
@@ -645,26 +642,27 @@ def optimize_sp_model(folds, df, rebuild_features = False):
             for t in tqdm(range(len(test_imgs))):
 
             
-                radiograph_image = cv2.imread(os.path.join(config.IMAGE_DATASET_ROOT,f'{test_imgs[t]}.jpeg'),cv2.IMREAD_GRAYSCALE);
-                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-                radiograph_image = clahe.apply(radiograph_image);
-                radiograph_image = np.expand_dims(radiograph_image, axis=2);
-                radiograph_image = np.repeat(radiograph_image, 3,axis=2);
+                # radiograph_image = cv2.imread(os.path.join(config.IMAGE_DATASET_ROOT,f'{test_imgs[t]}.jpeg'),cv2.IMREAD_GRAYSCALE);
+                # clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                # radiograph_image = clahe.apply(radiograph_image);
+                # radiograph_image = np.expand_dims(radiograph_image, axis=2);
+                # radiograph_image = np.repeat(radiograph_image, 3,axis=2);
 
 
-                transformed = config.valid_transforms(image = radiograph_image);
-                radiograph_image = transformed["image"];
-                radiograph_image = radiograph_image.to(config.DEVICE);
+                # transformed = config.valid_transforms(image = radiograph_image);
+                # radiograph_image = transformed["image"];
+                # radiograph_image = radiograph_image.to(config.DEVICE);
                 
                 spine = cv2.imread(f'results\\{idx}\\outputs\\{test_imgs[t]}_spine_orig.png', cv2.IMREAD_GRAYSCALE);
                 whole_thorax = cv2.imread(f'results\\{idx}\\outputs\\{test_imgs[t]}_thorax.png', cv2.IMREAD_GRAYSCALE);
 
-                spinous_process = model_sp(radiograph_image.unsqueeze(dim=0));
-                spinous_process = torch.sigmoid(spinous_process)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
-                spinous_process = spinous_process > 0.6;
-                spinous_process = np.uint8(spinous_process)*255;
+                # spinous_process = model_sp(radiograph_image.unsqueeze(dim=0));
+                # spinous_process = torch.sigmoid(spinous_process)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
+                # spinous_process = spinous_process > 0.6;
+                # spinous_process = np.uint8(spinous_process)*255;
+                spinous_process = cv2.imread(f'results\\{idx}\\outputs\\{test_imgs[t]}_spinous_prcess.png', cv2.IMREAD_GRAYSCALE);
             
-                sp_features = extract_sp_feature(spine, spinous_process, whole_thorax, test_imgs[t], False);
+                sp_features = extract_sp_feature(spine, spinous_process, whole_thorax, test_imgs[t], True);
                 
                 total_X.append(sp_features);
                 lbl = sp_list[img_list.index(test_imgs[t])];
@@ -676,7 +674,7 @@ def optimize_sp_model(folds, df, rebuild_features = False):
         custom_cv = zip(train_fold_indices, test_fold_indices);
         pickle.dump([total_X, total_Y, total_imgs, custom_cv], open('data_sp1.dmp', 'wb'));
 
-    data = pickle.load(open('data_sp.dmp', 'rb'));
+    data = pickle.load(open('data_sp1.dmp', 'rb'));
     total_x, total_y, total_imgs, custom_cv = data[0], data[1], data[2], data[3];
     total_x = np.array(total_x);
     total_y = np.array(total_y);
@@ -722,6 +720,9 @@ def optimize_sp_model(folds, df, rebuild_features = False):
         model.fit(train_x, train_y);
         pickle.dump(model, open(os.path.join('results', str(fold_cnt), 'sp.mlm'), 'wb'));
         pred = model.predict(test_x);
+        for i in range(len(pred)):
+            if pred[i]!=test_y[i]:
+                print(f'{test_imgs[i]}\tpred: {pred[i]}\tGT: {test_y[i]}')
         total_gt.extend(test_y);
         total_pred.extend(pred);
 
