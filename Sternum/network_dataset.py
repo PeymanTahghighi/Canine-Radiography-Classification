@@ -19,7 +19,7 @@ class CanineDatasetSeg(Dataset):
         self.__radiographs = [];
         self.__masks = [];
         self.__train = train;
-        reload = True;
+        reload = False;
         total_zeros = 0;
         total_ones = 0;
         if reload is True:
@@ -125,9 +125,10 @@ class CanineDatasetSeg(Dataset):
     def __getitem__(self, index):
         radiograph = self.__radiographs[index];
         mask =  self.__masks[index];
-        # cv2.imshow('rad', radiograph);
-        # cv2.imshow('m', mask);
-        # cv2.waitKey();
+        fig, ax = plt.subplots(1, 2);
+        ax[0].imshow(radiograph);
+        ax[1].imshow(mask);
+        plt.show();
 
         if self.__train is True:
             transformed = config.train_transforms_seg(image = radiograph, mask = mask);

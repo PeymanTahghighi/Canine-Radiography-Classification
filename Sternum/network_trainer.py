@@ -58,10 +58,10 @@ class NetworkTrainer():
         self.model = Unet(1).to(config.DEVICE);
         self.init_weights = deepcopy(self.model.state_dict());
         self.scaler = torch.cuda.amp.grad_scaler.GradScaler();
-        self.precision_estimator = Precision(num_classes=1, multiclass=False).to(config.DEVICE);
-        self.recall_estimator = Recall(num_classes=1, multiclass=False).to(config.DEVICE);
-        self.accuracy_esimator = Accuracy(num_classes=1, multiclass=False).to(config.DEVICE);
-        self.f1_esimator = F1Score(num_classes=1, multiclass=False).to(config.DEVICE);
+        self.precision_estimator = Precision(task='binary', num_classes=1).to(config.DEVICE);
+        self.recall_estimator = Recall(task='binary',num_classes=1).to(config.DEVICE);
+        self.accuracy_esimator = Accuracy(task='binary',num_classes=1).to(config.DEVICE);
+        self.f1_esimator = F1Score(task='binary',num_classes=1).to(config.DEVICE);
 
         pass
 
@@ -81,8 +81,6 @@ class NetworkTrainer():
         print(('\n' + '%10s'*2) %('Epoch', 'Loss'));
         pbar = tqdm(pbar, total= len(loader), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')
         for i, (radiograph, mask) in pbar:
-            if step == 1:
-                model.zero_grad(set_to_none = True);
             radiograph, mask = radiograph.to(config.DEVICE), mask.to(config.DEVICE)
             
             with torch.cuda.amp.autocast_mode.autocast():
@@ -243,7 +241,7 @@ class NetworkTrainer():
         valid_dataset = CanineDatasetSeg(test_data[0], test_data[1],  train = False);
 
         train_loader = DataLoader(train_dataset, 
-        batch_size= config.BATCH_SIZE, shuffle=True, num_workers=2, pin_memory=True);
+        batch_size= config.BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True);
 
         valid_loader = DataLoader(valid_dataset, 
         batch_size= config.BATCH_SIZE, shuffle=False);

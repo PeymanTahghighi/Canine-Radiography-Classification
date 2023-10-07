@@ -141,13 +141,13 @@ def store_results(fold_cnt, segmentation_models, test_imgs):
         # #----------------------------------------------------
 
 
-        # # # #sternum
-        # sternum = segmentation_models[2](radiograph_image.unsqueeze(dim=0));
-        # sternum = torch.sigmoid(sternum)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
-        # sternum = sternum > 0.7;
-        # sternum = np.uint8(sternum)*255;
-        # sternum = postprocess_sternum(sternum);
-        # # # #----------------------------------------------------
+        # # #sternum
+        sternum = segmentation_models[0](radiograph_image.unsqueeze(dim=0));
+        sternum = torch.sigmoid(sternum)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
+        sternum = sternum > 0.7;
+        sternum = np.uint8(sternum)*255;
+        sternum = postprocess_sternum(sternum);
+        # # #----------------------------------------------------
         
         #ribs_new = remove_outliers_hist_ver(hist_ver, ribs);
         #ribs_new = remove_outliers_hist_hor(hist_hor, ribs_new);
@@ -187,10 +187,10 @@ def store_results(fold_cnt, segmentation_models, test_imgs):
         # spine_mask_processed = smooth_boundaries(spine.astype("uint8")*255,10);
         # spine_mask_5 = draw_missing_spine(spine_mask_processed);
         # spine_mask_5 = scale_width(spine_mask_5,10);
-        spinous_process = segmentation_models[3](radiograph_image.unsqueeze(dim=0));
-        spinous_process = torch.sigmoid(spinous_process)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
-        spinous_process = spinous_process > 0.5;
-        spinous_process = np.uint8(spinous_process)*255;
+        # spinous_process = segmentation_models[3](radiograph_image.unsqueeze(dim=0));
+        # spinous_process = torch.sigmoid(spinous_process)[0].permute(1,2,0).detach().cpu().numpy().squeeze();
+        # spinous_process = spinous_process > 0.5;
+        # spinous_process = np.uint8(spinous_process)*255;
 
         # overlap = np.maximum(np.where(spinous_process>0,1,0) - np.where(spine_mask_5>0,1,0), np.zeros_like(spinous_process));
         # sp_features = np.sum(overlap);
@@ -202,9 +202,10 @@ def store_results(fold_cnt, segmentation_models, test_imgs):
         #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_ribs_orig.png', ribs_new);
         #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_diaph.png', abdomen_mask);
         #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_heart.png', heart_mask);
-        #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_sternum.png', sternum);
+        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_sternum.png', sternum);
+        
         #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_thorax.png', whole_thorax);
-        cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_spinous_prcess.png', spinous_process);
+        #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_spinous_prcess.png', spinous_process);
         #cv2.imwrite(f'results\\{fold_cnt}\\outputs\\{test_imgs[idx]}_sp_overlap.png', overlap.astype("uint8")*255);
             
     #     else:

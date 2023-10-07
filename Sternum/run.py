@@ -238,7 +238,7 @@ def store_labels():
 
 
 if __name__ == "__main__":
-    #preload_dataset()
+    preload_dataset()
     #store_labels();
 
     font = {'family' : 'normal',
@@ -246,7 +246,7 @@ if __name__ == "__main__":
 
     #matplotlib.rc('font', **font)
 
-    #nt = NetworkTrainer();
+    nt = NetworkTrainer();
     kfold = KFold(5);
     train_ids = [];
     test_ids = [];
@@ -259,16 +259,16 @@ if __name__ == "__main__":
     best_param = None;
     #for hyp in params:
     total_f1 = [];
-    # total_train_sternum1, total_test_sternum1 = pickle.load(open('data_sternum1.dmp', 'rb'));
-    # for curr_fold in range(2,5):
+    total_train_sternum1, total_test_sternum1 = pickle.load(open('data_sternum1.dmp', 'rb'));
+    # for curr_fold in range(0,5):
     #     print(f'===============Starting fold: {curr_fold}==================')
     #     img_train,lbl_train, img_test,lbl_test = pickle.load(open(f'{curr_fold}.dmp', 'rb'));
 
         
-    #     #f1 = nt.train(curr_fold, [img_train, lbl_train], [img_test, lbl_test]);
-    #     #total_f1.append(f1);
-    #     #nt.train_classifier(curr_fold, [img_train, lbl_train], [img_test, lbl_test]);e
-    #     train_x, train_y, test_x, test_y = nt.store_results(curr_fold, [img_train, img_test, lbl_test], total_test_sternum1);
+    #     f1 = nt.train(curr_fold, [img_train, lbl_train], [img_test, lbl_test]);
+        #total_f1.append(f1);
+        #nt.train_classifier(curr_fold, [img_train, lbl_train], [img_test, lbl_test]);
+    #train_x, train_y, test_x, test_y = nt.store_results(curr_fold, [img_train, img_test, lbl_test], total_test_sternum1);
     #     train_ids.append(np.arange(len(total_x), len(train_x) + len(total_x)));
     #     test_ids.append(np.arange(len(total_x) + len(train_x), len(test_x) + len(total_x) + len(train_x)));
     #     total_x.extend(train_x);
